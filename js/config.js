@@ -2,8 +2,8 @@
 // The anon key is meant to be public: the security rules in supabase/schema.sql
 // are what protect your data, so only signed-in staff can see bookings.
 
-export const SUPABASE_URL = "https://YOUR-PROJECT-ID.supabase.co";
-export const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+export const SUPABASE_URL = "https://embkujshqombiawjcuqz.supabase.co/rest/v1/"; 
+export const SUPABASE_ANON_KEY = "sb_publishable_NUwkz3MVvkPdOhW1SjmZgA_u-qmMPp_";
 
 // Your business name, shown at the top of the app and on the login screen.
 export const BUSINESS_NAME = "Booking Register";
