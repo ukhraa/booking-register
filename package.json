@@ -1,0 +1,11 @@
+{
+  "name": "booking-register",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Booking register for 6 apartments — installable web app on Supabase",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "python3 -m http.server 8000"
+  }
+}

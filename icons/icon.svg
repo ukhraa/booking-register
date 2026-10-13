@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1f5e46"/>
+  <!-- roof -->
+  <path d="M116 236 L256 120 L396 236" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- register book -->
+  <rect x="158" y="228" width="196" height="172" rx="18" fill="#dcebe3"/>
+  <rect x="158" y="228" width="34" height="172" rx="12" fill="#a9cfbd"/>
+  <path d="M220 280 H320 M220 318 H320 M220 356 H286" stroke="#1f5e46" stroke-width="18" stroke-linecap="round"/>
+</svg>
