@@ -1,4 +1,4 @@
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from "./config.js";
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
@@ -16,13 +16,20 @@ if ("serviceWorker" in navigator) {
 document.title = BUSINESS_NAME;
 document.querySelectorAll(".biz-name").forEach((el) => (el.textContent = BUSINESS_NAME));
 
-const configured = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.startsWith("YOUR-");
-if (!configured) {
+// Accept the URL however it was pasted: trim spaces, drop "/rest/v1" and trailing slashes.
+const PROJECT_URL = SUPABASE_URL.trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+const API_KEY = SUPABASE_ANON_KEY.trim();
+const configured = !PROJECT_URL.includes("YOUR-PROJECT") && !API_KEY.startsWith("YOUR-");
+const secretKey = API_KEY.startsWith("sb_secret_") || /service_role/.test(atobSafe(API_KEY.split(".")[1]));
+function atobSafe(s) { try { return s ? atob(s.replace(/-/g, "+").replace(/_/g, "/")) : ""; } catch { return ""; } }
+if (!configured || secretKey) {
+  if (secretKey) $("setupView").querySelector("p").textContent =
+    "js/config.js contains a secret (service_role) key. Replace it with the publishable or anon key from Supabase, and reset the secret key in Supabase because it is now public.";
   show("setupView");
-  throw new Error("Supabase is not configured in js/config.js");
+  throw new Error("Supabase is not configured correctly in js/config.js");
 }
 
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+const sb = createClient(PROJECT_URL, API_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
