@@ -1,0 +1,124 @@
+// Booking calculations. These mirror the generated columns in supabase/schema.sql,
+// so the form preview always matches what the database stores.
+
+export const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+export const num = (v) => {
+  const x = parseFloat(v);
+  return Number.isFinite(x) ? x : 0;
+};
+
+/** Days between two YYYY-MM-DD strings, timezone-safe. */
+export function dayNumber(s) {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+  const [y, m, d] = s.split("-").map(Number);
+  return Date.UTC(y, m - 1, d) / 86400000;
+}
+
+export function nightsBetween(checkIn, checkOut) {
+  const a = dayNumber(checkIn);
+  const b = dayNumber(checkOut);
+  return Number.isFinite(a) && Number.isFinite(b) && b > a ? b - a : 0;
+}
+
+/**
+ * All derived figures for one booking.
+ * Tariff is the room charge for the whole stay, before GST.
+ */
+export function calcBooking(b) {
+  const nights = nightsBetween(b.check_in, b.check_out);
+  const tariff = num(b.tariff);
+  const gstAmount = r2((tariff * num(b.gst_pct)) / 100);
+  const totalTariff = r2(tariff + gstAmount);
+  const grossTotal = r2(
+    totalTariff + num(b.food_bill) + num(b.extra_bed) + num(b.firewood) + num(b.gas)
+  );
+  const totalBalance = r2(grossTotal - num(b.advance_ota));
+  const collected = r2(num(b.paid_cash) + num(b.paid_upi));
+  const difference = r2(collected - totalBalance); // + means over-collected
+  const totalBalanced = Math.abs(difference) < 0.5;
+  const changeToReturn = r2(num(b.cash_received) - num(b.paid_cash) - num(b.tips));
+  return {
+    nights,
+    gstAmount,
+    totalTariff,
+    grossTotal,
+    totalBalance,
+    collected,
+    difference,
+    totalBalanced,
+    changeToReturn,
+  };
+}
+
+/**
+ * Suggested GST % for a room, by per-night tariff (Indian hotel accommodation
+ * slabs after the September 2025 rate change). Staff can always override it.
+ */
+export function suggestGstPct(tariff, nights) {
+  const t = num(tariff);
+  if (!t || !nights) return null;
+  const perNight = t / nights;
+  if (perNight <= 1000) return 0;
+  if (perNight <= 7500) return 5;
+  return 18;
+}
+
+/** True when [aIn, aOut) and [bIn, bOut) share at least one night. */
+export function staysOverlap(aIn, aOut, bIn, bOut) {
+  return dayNumber(aIn) < dayNumber(bOut) && dayNumber(aOut) > dayNumber(bIn);
+}
+
+const inr = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+export const formatINR = (n) => inr.format(r2(n));
+
+/** YYYY-MM-DD -> DD-MM-YYYY */
+export const formatDate = (s) => (s ? s.split("-").reverse().join("-") : "");
+
+/** Today's date as YYYY-MM-DD in the device's own timezone. */
+export function todayISO(d = new Date()) {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/** First and last day of a YYYY-MM month. */
+export function monthRange(ym) {
+  const [y, m] = ym.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return [`${ym}-01`, `${ym}-${String(last).padStart(2, "0")}`];
+}
+
+export const CSV_HEADERS = [
+  "Serial No.", "House Name", "Booking Type", "Guest Name", "Check-in Date",
+  "Check-out Date", "No. of Nights", "Tariff", "GST %", "GST Amount", "Total Tariff",
+  "Bill No.", "Food Bill", "Extra Bed", "Firewood", "Gas", "Gross Total",
+  "Advance/Paid to OTA", "Total Balance", "Paid by Cash", "Cash Received", "Tips",
+  "Paid by UPI", "Total Balanced?", "UPI/Cash Amount - Notes",
+];
+
+export function toCSV(bookings, houseName) {
+  const q = (v) => {
+    const s = String(v ?? "");
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = bookings.map((b) => {
+    const c = calcBooking(b);
+    return [
+      b.serial, houseName(b.house_id), b.booking_type, b.guest_name,
+      formatDate(b.check_in), formatDate(b.check_out), c.nights, num(b.tariff),
+      num(b.gst_pct), c.gstAmount, c.totalTariff, b.bill_no, num(b.food_bill),
+      num(b.extra_bed), num(b.firewood), num(b.gas), c.grossTotal, num(b.advance_ota),
+      c.totalBalance, num(b.paid_cash), num(b.cash_received), num(b.tips),
+      num(b.paid_upi), c.totalBalanced ? "Yes" : "No", b.notes,
+    ].map(q).join(",");
+  });
+  // BOM so Excel opens ₹ and Indian names correctly
+  return "﻿" + [CSV_HEADERS.join(","), ...rows].join("\r\n");
+}

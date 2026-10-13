@@ -1,0 +1,112 @@
+# Booking Register
+
+A booking register for our 6 apartments. It runs in any browser and installs on Android and iPhone like an app.
+
+Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra bed, firewood, gas), OTA advance and cash/UPI payments. The app works out nights, GST, totals and the balance, and flags any booking whose payments don't add up.
+
+- **Register**: monthly list with totals, filters, search and CSV export for Excel/accounts
+- **Apartments**: which apartments are occupied tonight and who's arriving next
+- **Settings** (owner only): rename apartments, give or remove staff access
+- Changes show up live on every phone
+- Warns before double-booking an apartment
+
+Hosting is free: GitHub Pages for the app and Supabase for the database.
+
+---
+
+## Setup (about 15 minutes, one time)
+
+### 1. Create the database
+
+1. Sign up at **https://supabase.com** and click **New project**.
+   - Name it `booking-register`.
+   - Pick a strong database password and save it somewhere safe.
+   - Region: **Mumbai (ap-south-1)** is closest.
+2. When the project is ready, open **SQL Editor → New query**.
+3. Paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**. You should see "Success. No rows returned".
+4. Go to **Authentication → Sign In / Providers**:
+   - Turn **off** "Allow new users to sign up". Only you should create logins.
+   - Under **Email**, turn **off** "Confirm email".
+
+### 2. Create your login (the owner)
+
+1. Go to **Authentication → Users → Add user → Create new user**.
+2. Enter your email and a password, and tick **Auto Confirm User**.
+
+The first login you create automatically becomes the **Owner**.
+
+### 3. Connect the app to the database
+
+1. In Supabase, open **Project Settings → API** (also shown under **Connect**).
+2. Copy the **Project URL** and the **anon / public** key.
+3. In GitHub, open [`js/config.js`](js/config.js), click the ✏️ pencil, paste both values, and click **Commit changes**.
+   - You can also change `BUSINESS_NAME` and the `BOOKING_TYPES` list here.
+
+> The anon key is designed to be public. Your bookings are protected by the security rules in the database: only people you've given a login can see or change anything.
+
+### 4. Put the app online (GitHub Pages)
+
+1. In this GitHub repo, go to **Settings → Pages**.
+2. Under **Build and deployment**, choose **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
+3. After a minute, the page shows your app's address, for example `https://ukhraa.github.io/booking-register/`.
+
+### 5. Install it on phones
+
+- **Android (Chrome):** open the address, tap **⋮ → Add to Home screen → Install**.
+- **iPhone (Safari):** open the address, tap **Share → Add to Home Screen**.
+
+It opens full-screen with its own icon, like a normal app.
+
+### 6. Add staff
+
+1. In Supabase, go to **Authentication → Users → Add user** and enter their email and a password (tick **Auto Confirm User**).
+2. They show up in the app under **Settings → Staff** as *Staff*.
+3. To stop someone signing in, untick **Can sign in**. Their past bookings stay.
+
+| | Owner | Staff |
+|---|---|---|
+| See, add and edit bookings | ✅ | ✅ |
+| Delete bookings | ✅ | — |
+| Rename apartments, manage staff | ✅ | — |
+
+---
+
+## How the numbers are worked out
+
+| Field | Calculation |
+|---|---|
+| No. of Nights | Check-out − Check-in |
+| GST Amount | Tariff × GST % |
+| Total Tariff | Tariff + GST Amount |
+| Gross Total | Total Tariff + Food Bill + Extra Bed + Firewood + Gas |
+| Total Balance | Gross Total − Advance/Paid to OTA |
+| Total Balanced? | **Yes** when Paid by Cash + Paid by UPI = Total Balance (within ₹0.50) |
+| Change to return | Cash Received − Paid by Cash − Tips (shown on the form) |
+
+- **Tariff** is the room charge for the **whole stay, before GST**.
+- **Tips** are recorded separately and don't count towards the balance.
+- **GST %** is suggested from the per-night rate (₹1,000 or less: nil; up to ₹7,500: 5%; above ₹7,500: 18%), and staff can always change it. Check the current rates with your accountant.
+
+The database stores these calculated values itself, so every phone and every export shows the same figures.
+
+---
+
+## Updating the app
+
+- **Change files** by editing them on GitHub, or ask Claude Code to make changes in this repo.
+- After changing app files, bump `VERSION` in [`sw.js`](sw.js) (for example `v1` → `v2`) so installed phones pick up the update. They update the next time the app is opened twice.
+- **Back up** anytime by going to **Register → All months → Export CSV**. Supabase also has backups under **Database → Backups**.
+
+## Files
+
+```
+index.html            app screens
+css/app.css           look and feel (light and dark mode)
+js/app.js             screens, saving, live updates
+js/calc.js            all booking calculations (tested)
+js/config.js          your Supabase details, business name, booking types
+supabase/schema.sql   database tables, calculations and security rules
+sw.js                 offline support / installable app
+manifest.webmanifest  app name and icons for phones
+tests/                calculation tests: run `node --test tests/*.test.mjs`
+```

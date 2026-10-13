@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Booking Register</title>
+  <meta name="description" content="Bookings, GST and payment register for our apartments">
+  <meta name="theme-color" content="#1f5e46" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1512" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Bookings">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="offline" class="banner warn" hidden>You're offline. Bookings will load again when you reconnect.</div>
+
+  <!-- Shown when config.js still has placeholder values -->
+  <main id="setupView" class="center-view" hidden>
+    <div class="card narrow">
+      <h1>Almost there</h1>
+      <p>This app isn't connected to its database yet. Open <code>js/config.js</code> and paste your Supabase project URL and anon key. The README explains each step.</p>
+    </div>
+  </main>
+
+  <!-- Login -->
+  <main id="loginView" class="center-view" hidden>
+    <form id="loginForm" class="card narrow" novalidate>
+      <div class="brand"><img src="icons/icon.svg" alt="" width="40" height="40"><h1 class="biz-name">Booking Register</h1></div>
+      <p class="muted">Sign in with the email and password the owner gave you.</p>
+      <div class="f"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required></div>
+      <div class="f"><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
+      <p class="err" id="loginErr" hidden></p>
+      <button class="btn primary block" id="loginBtn" type="submit">Sign in</button>
+    </form>
+  </main>
+
+  <!-- App -->
+  <div id="appView" hidden>
+    <header class="topbar">
+      <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><span class="biz-name">Booking Register</span></div>
+      <nav class="tabs" aria-label="Sections">
+        <button class="tab" data-tab="register" aria-current="page">Register</button>
+        <button class="tab" data-tab="houses">Apartments</button>
+        <button class="tab" data-tab="settings" id="settingsTab" hidden>Settings</button>
+      </nav>
+      <div class="who"><span id="whoName"></span><button class="btn ghost small" id="signOutBtn">Sign out</button></div>
+    </header>
+
+    <main class="wrap">
+      <!-- Register -->
+      <section id="tab-register" class="stack">
+        <div class="row-between">
+          <h2 id="periodTitle">Bookings</h2>
+          <div class="actions">
+            <button class="btn" id="exportBtn">Export CSV</button>
+            <button class="btn primary" id="newBtn">New booking</button>
+          </div>
+        </div>
+        <section class="summary" id="summary" aria-label="Totals"></section>
+        <div class="filters">
+          <select id="fMonth" aria-label="Month"></select>
+          <select id="fHouse" aria-label="Apartment"></select>
+          <select id="fType" aria-label="Booking type"></select>
+          <select id="fBal" aria-label="Balance status">
+            <option value="">All balance states</option>
+            <option value="no">Not balanced</option>
+            <option value="yes">Balanced</option>
+          </select>
+          <input type="search" id="fSearch" placeholder="Search guest, bill no., notes" aria-label="Search">
+        </div>
+        <div id="loading" class="muted pad">Loading bookings…</div>
+        <div class="tablebox" id="tableBox"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody><tfoot id="tfoot"></tfoot></table></div>
+        <div class="cards" id="cards"></div>
+        <p class="empty" id="empty" hidden></p>
+      </section>
+
+      <!-- Apartments today -->
+      <section id="tab-houses" class="stack" hidden>
+        <h2>Apartments <span class="muted small" id="todayLabel"></span></h2>
+        <div class="houses" id="houses"></div>
+      </section>
+
+      <!-- Settings (owner) -->
+      <section id="tab-settings" class="stack" hidden>
+        <h2>Apartment names</h2>
+        <form id="housesForm" class="card stack">
+          <div class="grid2" id="houseInputs"></div>
+          <p class="err" id="housesErr" hidden></p>
+          <div><button class="btn primary" type="submit">Save names</button></div>
+        </form>
+
+        <h2>Staff</h2>
+        <div class="card stack">
+          <p class="muted">To add a staff member, create their login in Supabase (<b>Authentication → Users → Add user</b>, tick <i>Auto confirm</i>). They appear here as Staff. Owners can delete bookings and change settings; Staff can add and edit bookings.</p>
+          <div id="staffList" class="staff"></div>
+          <p class="err" id="staffErr" hidden></p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Booking sheet -->
+  <div id="sheet" class="sheet-host" hidden>
+    <div class="scrim" data-close></div>
+    <aside class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-head">
+        <h2 id="sheetTitle">New booking</h2>
+        <button class="btn ghost" data-close type="button">Close</button>
+      </div>
+      <form class="sheet-body" id="bookingForm" novalidate>
+        <fieldset>
+          <legend>Stay</legend>
+          <div class="f"><label for="serial">Serial No.</label><input id="serial" type="number" min="1" step="1" inputmode="numeric"></div>
+          <div class="f"><label for="house_id">House Name</label><select id="house_id"></select></div>
+          <div class="f"><label for="booking_type">Booking Type</label><select id="booking_type"></select></div>
+          <div class="f"><label for="guest_name">Guest Name</label><input id="guest_name" type="text" autocomplete="off"></div>
+          <div class="f"><label for="check_in">Check-in Date</label><input id="check_in" type="date"></div>
+          <div class="f"><label for="check_out">Check-out Date</label><input id="check_out" type="date"></div>
+          <div class="f calc"><span class="lbl">No. of Nights</span><output id="o_nights">0</output></div>
+          <p class="hint wide" id="stayHint"></p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Room tariff</legend>
+          <div class="f"><label for="tariff">Tariff (whole stay, before GST)</label><input id="tariff" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="gst_pct">GST %</label><input id="gst_pct" type="number" min="0" max="28" step="any" inputmode="decimal"></div>
+          <div class="f calc"><span class="lbl">GST Amount</span><output id="o_gst">₹0</output></div>
+          <div class="f calc"><span class="lbl">Total Tariff</span><output id="o_total_tariff">₹0</output></div>
+          <div class="f"><label for="bill_no">Bill No.</label><input id="bill_no" type="text" autocomplete="off"></div>
+          <p class="hint wide" id="gstHint"></p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Extras</legend>
+          <div class="f"><label for="food_bill">Food Bill</label><input id="food_bill" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="extra_bed">Extra Bed</label><input id="extra_bed" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="firewood">Firewood</label><input id="firewood" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="gas">Gas</label><input id="gas" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f calc"><span class="lbl">Gross Total</span><output id="o_gross">₹0</output></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Settlement</legend>
+          <div class="f"><label for="advance_ota">Advance / Paid to OTA</label><input id="advance_ota" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f calc"><span class="lbl">Total Balance</span><output id="o_balance">₹0</output></div>
+          <div class="f"><label for="paid_cash">Paid by Cash</label><input id="paid_cash" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="cash_received">Cash Received</label><input id="cash_received" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="tips">Tips</label><input id="tips" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="paid_upi">Paid by UPI</label><input id="paid_upi" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f calc"><span class="lbl">Total Balanced?</span><output id="o_balanced">—</output></div>
+          <p class="hint wide" id="balHint"></p>
+          <div class="f wide"><label for="notes">UPI / Cash Amount – Notes</label><textarea id="notes" rows="3"></textarea></div>
+        </fieldset>
+        <p class="meta wide" id="metaLine"></p>
+        <p class="err" id="formErr" hidden></p>
+      </form>
+      <div class="sheet-foot">
+        <button class="btn danger" id="deleteBtn" type="button" hidden>Delete booking</button>
+        <span class="grow"></span>
+        <button class="btn primary" id="saveBtn" type="button">Save booking</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
