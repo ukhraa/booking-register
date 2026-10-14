@@ -8,7 +8,7 @@ export const SUPABASE_URL = "https://embkujshqombiawjcuqz.supabase.co";
 export const SUPABASE_ANON_KEY = "sb_publishable_NUwkz3MVvkPdOhW1SjmZgA_u-qmMPp_";
 
 // Your business name, shown at the top of the app and on the login screen.
-export const BUSINESS_NAME = "Booking Register";
+export const BUSINESS_NAME = "Two Seas Residence";
 
 // Options in the Booking Type list. Edit freely.
 export const BOOKING_TYPES = [

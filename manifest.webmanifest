@@ -1,7 +1,7 @@
 {
-  "name": "Booking Register",
-  "short_name": "Bookings",
-  "description": "Bookings, GST and payment register for our apartments",
+  "name": "Two Seas Residence",
+  "short_name": "Two Seas",
+  "description": "Two Seas Residence booking register",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
