@@ -243,6 +243,9 @@ create table if not exists public.business_profile (
   state          text not null default '',
   invoice_prefix text not null default 'TSR' check (invoice_prefix ~ '^[A-Za-z0-9]{0,5}$'),
   footer_note    text not null default 'Thank you for staying with us.',
+  -- PNG data URL printed above "Authorised signatory"; kept here, not in the public repo
+  signature      text not null default ''
+                 check (signature = '' or (signature like 'data:image/png;base64,%' and length(signature) < 300000)),
   updated_at     timestamptz not null default now()
 );
 

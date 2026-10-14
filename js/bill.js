@@ -15,7 +15,7 @@ export function billTitle(biz, gstAmount) {
 
 /**
  * @param b    saved booking row (needs bill_no)
- * @param biz  business_profile row: legal_name, address, phone, email, gstin, state, footer_note
+ * @param biz  business_profile row: legal_name, address, phone, email, gstin, state, footer_note, signature
  * @param apartment  apartment name
  */
 export function billHTML(b, biz, apartment) {
@@ -82,7 +82,7 @@ export function billHTML(b, biz, apartment) {
 
     <footer class="bill-foot">
       ${biz.footer_note ? `<p>${esc(biz.footer_note)}</p>` : ""}
-      <div class="sign">For ${name}<span>Authorised signatory</span></div>
+      <div class="sign">For ${name}${/^data:image\/png;base64,/.test(biz.signature ?? "") ? `<img src="${esc(biz.signature)}" alt="Signature">` : ""}<span>Authorised signatory</span></div>
       <p class="small">This is a computer-generated bill.</p>
     </footer>
   </article>`;
