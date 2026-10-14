@@ -7,7 +7,8 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Register**: monthly list with totals, filters, search and CSV export for Excel/accounts
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are Yes/No choices on the booking form. Yes adds the standard charge automatically: ₹500, ₹600 and ₹500 per stay to start with.
-- **Settings** (owner only): rename apartments, change the Extra Bed, Firewood and Gas charges, give or remove staff access
+- **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
+- **Settings** (owner only): rename apartments, change the Extra Bed, Firewood and Gas charges, set the bill details (business name, address, GSTIN, bill number prefix), give or remove staff access
 - Changes show up live on every phone
 - Warns before double-booking an apartment
 
@@ -99,6 +100,7 @@ If you set up the database before a feature was added, run the matching file fro
 | File | Adds |
 |---|---|
 | `002_extra_charges.sql` | Editable rates for Extra Bed, Firewood and Gas |
+| `003_guest_bill.sql` | Printable guest bill: business details and automatic bill numbers |
 
 ## Updating the app
 
@@ -113,6 +115,7 @@ index.html            app screens
 css/app.css           look and feel (light and dark mode)
 js/app.js             screens, saving, live updates
 js/calc.js            all booking calculations (tested)
+js/bill.js            printable guest bill
 js/config.js          your Supabase details, business name, booking types
 supabase/schema.sql   database tables, calculations and security rules
 sw.js                 offline support / installable app

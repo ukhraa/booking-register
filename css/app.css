@@ -174,6 +174,57 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 999px; font-size: 14px; z-index: 30; }
 
+/* guest bill: always printed on white paper, whatever the phone's theme */
+.bill-host { position: fixed; inset: 0; z-index: 25; background: var(--sunk); display: flex; flex-direction: column; }
+.bill-bar { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bill-scroll { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
+.bill-doc {
+  --ink: #17231d; --soft: #5d6b64; --rule: #cfd8d3; --brand: #1f5e46;
+  max-width: 760px; margin: 0 auto; background: #fff; color: var(--ink); color-scheme: light;
+  padding: 28px; border-radius: var(--r); box-shadow: 0 2px 12px rgb(0 0 0 / .12);
+  font-size: 13px; display: flex; flex-direction: column; gap: 18px;
+}
+.bill-doc p { margin: 0; }
+.bill-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; border-bottom: 2px solid var(--brand); padding-bottom: 14px; }
+.bill-from { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bill-from h1 { color: var(--brand); font-size: 1.5rem; }
+.bill-from .addr { white-space: pre-line; color: var(--soft); }
+.bill-meta h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em; text-align: right; margin-bottom: 6px; }
+.bill-meta dl { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin: 0; }
+.bill-meta dt { color: var(--soft); }
+.bill-meta dd { margin: 0; text-align: right; font-family: var(--mono); }
+.bill-parties { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.bill-parties .k { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--soft); margin-bottom: 2px; }
+.bill-doc table { width: 100%; min-width: 0; font-size: 13px; }
+.bill-doc th, .bill-doc td { white-space: normal; border-bottom: 1px solid var(--rule); padding: 7px 6px; }
+.bill-doc th { position: static; background: #eef2ef; color: var(--soft); }
+.bill-doc td.r { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bill-doc tbody tr { cursor: auto; }
+.bill-doc tbody tr:hover td { background: none; }
+.bill-lines small { display: block; color: var(--soft); }
+.bill-lines tfoot td { background: none; font-weight: 700; font-size: 15px; border-top: 2px solid var(--ink); border-bottom: 0; }
+.bill-words { font-style: italic; color: var(--soft); }
+.bill-pay { max-width: 360px; margin-left: auto; }
+.bill-status { align-self: flex-end; font-weight: 700; font-size: 15px; padding: 6px 12px; border-radius: 6px; }
+.bill-status.paid { color: #2f7a3d; background: #e1f1e3; }
+.bill-status.due { color: #b3261e; background: #fbe3e1; }
+.bill-foot { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.bill-foot .sign { align-self: flex-end; text-align: right; margin-top: 28px; }
+.bill-foot .sign span { display: block; margin-top: 36px; border-top: 1px solid var(--ink); padding-top: 4px; color: var(--soft); }
+.bill-foot .small { color: var(--soft); text-align: center; }
+@media (max-width: 480px) { .bill-scroll { padding: 8px; } .bill-doc { padding: 16px; } .bill-meta h2 { text-align: left; } }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; padding: 0; }
+  body > *:not(#billView) { display: none !important; }
+  .bill-host { position: static; background: #fff; display: block; }
+  .bill-bar { display: none; }
+  .bill-scroll { overflow: visible; padding: 0; }
+  .bill-doc { box-shadow: none; padding: 0; max-width: none; }
+  .bill-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .sheet { animation: slide .18s ease-out; }
   @keyframes slide { from { transform: translateX(24px); opacity: .6; } }

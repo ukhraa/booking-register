@@ -14,6 +14,7 @@ Installable web app (PWA) for a 6-apartment homestay's booking register. Plain H
 - If you change a formula, change it in **both** `js/calc.js` and `supabase/schema.sql` (provide an `ALTER TABLE` migration in `supabase/migrations/`), and update `tests/calc.test.mjs`.
 - Tariff = whole-stay room charge before GST. Tips are excluded from the balance check.
 - Extra Bed, Firewood and Gas are Yes/No dropdowns on the form (`EXTRAS` in app.js). Yes copies the current rate from the `settings` table (`<name>_rate` keys) into the booking's amount column, so a later rate change never alters past bookings. A booking with an amount above 0 shows as Yes.
+- Guest bill: `js/bill.js` builds it from the **saved** booking (Print bill asks to save unsaved edits first). Business details come from the single-row `business_profile` table (owner edits in Settings). `assign_bill_no(uuid)` RPC fills an empty `bill_no` with `<prefix>/<FY>/<0001>`, FY by check-out date; a manually typed bill no. is kept. Only `#billView` prints (`@media print` in app.css).
 - Business name is "Two Seas Residence" (`BUSINESS_NAME` in config.js, plus index.html title and manifest).
 - Escape all user text with `esc()` before inserting into HTML.
 - Keep relative paths (the site is served from `/booking-register/` on GitHub Pages).

@@ -109,6 +109,24 @@
           <div><button class="btn primary" type="submit">Save charges</button></div>
         </form>
 
+        <h2>Bill details</h2>
+        <form id="bizForm" class="card stack" novalidate>
+          <p class="muted">Printed at the top of every guest bill. With a GSTIN the bill is a Tax Invoice and shows CGST and SGST separately.</p>
+          <div class="grid2">
+            <div class="f"><label for="biz_legal_name">Business name</label><input id="biz_legal_name" type="text" maxlength="80"></div>
+            <div class="f"><label for="biz_gstin">GSTIN</label><input id="biz_gstin" type="text" maxlength="15" autocapitalize="characters" autocomplete="off" placeholder="Leave blank if not registered"></div>
+            <div class="f wide"><label for="biz_address">Address</label><textarea id="biz_address" rows="3" maxlength="300"></textarea></div>
+            <div class="f"><label for="biz_phone">Phone</label><input id="biz_phone" type="tel" maxlength="40"></div>
+            <div class="f"><label for="biz_email">Email</label><input id="biz_email" type="email" maxlength="80"></div>
+            <div class="f"><label for="biz_state">State (place of supply)</label><input id="biz_state" type="text" maxlength="40" placeholder="e.g. Kerala"></div>
+            <div class="f"><label for="biz_invoice_prefix">Bill number prefix</label><input id="biz_invoice_prefix" type="text" maxlength="5" autocapitalize="characters" autocomplete="off"></div>
+            <div class="f wide"><label for="biz_footer_note">Note at the bottom of the bill</label><input id="biz_footer_note" type="text" maxlength="200"></div>
+          </div>
+          <p class="hint" id="bizHint"></p>
+          <p class="err" id="bizErr" hidden></p>
+          <div><button class="btn primary" type="submit">Save bill details</button></div>
+        </form>
+
         <h2>Staff</h2>
         <div class="card stack">
           <p class="muted">To add a staff member, create their login in Supabase (<b>Authentication → Users → Add user</b>, tick <i>Auto confirm</i>). They appear here as Staff. Owners can delete bookings and change settings; Staff can add and edit bookings.</p>
@@ -146,7 +164,7 @@
           <div class="f"><label for="gst_pct">GST %</label><input id="gst_pct" type="number" min="0" max="28" step="any" inputmode="decimal"></div>
           <div class="f calc"><span class="lbl">GST Amount</span><output id="o_gst">₹0</output></div>
           <div class="f calc"><span class="lbl">Total Tariff</span><output id="o_total_tariff">₹0</output></div>
-          <div class="f"><label for="bill_no">Bill No.</label><input id="bill_no" type="text" autocomplete="off"></div>
+          <div class="f"><label for="bill_no">Bill No.</label><input id="bill_no" type="text" autocomplete="off" placeholder="Given when you print the bill"></div>
           <p class="hint wide" id="gstHint"></p>
         </fieldset>
 
@@ -181,9 +199,20 @@
       <div class="sheet-foot">
         <button class="btn danger" id="deleteBtn" type="button" hidden>Delete booking</button>
         <span class="grow"></span>
+        <button class="btn" id="billBtn" type="button" hidden>Print bill</button>
         <button class="btn primary" id="saveBtn" type="button">Save booking</button>
       </div>
     </aside>
+  </div>
+
+  <!-- Guest bill preview. Only this is printed. -->
+  <div id="billView" class="bill-host" role="dialog" aria-modal="true" aria-label="Guest bill" hidden>
+    <div class="bill-bar">
+      <button class="btn ghost" id="billCloseBtn" type="button">Close</button>
+      <span class="grow"></span>
+      <button class="btn primary" id="billPrintBtn" type="button">Print / Save PDF</button>
+    </div>
+    <div class="bill-scroll"><div id="billDoc"></div></div>
   </div>
 
   <div class="toast" id="toast" role="status" hidden></div>

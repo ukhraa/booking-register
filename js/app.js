@@ -3,6 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from ".
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
 } from "./calc.js";
+import { billHTML } from "./bill.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -47,7 +48,11 @@ const state = {
   rates: { extra_bed: 500, firewood: 600, gas: 500 },
   ratesLoaded: false,
   extras: { extra_bed: 0, firewood: 0, gas: 0 },
+  // Business details printed on the guest bill (business_profile table)
+  business: { legal_name: "", address: "", phone: "", email: "", gstin: "", state: "", invoice_prefix: "TSR", footer_note: "" },
+  businessLoaded: false,
 };
+const BIZ_FIELDS = ["legal_name", "address", "phone", "email", "gstin", "state", "invoice_prefix", "footer_note"];
 const EXTRAS = ["extra_bed", "firewood", "gas"];
 const EXTRA_LABEL = { extra_bed: "Extra Bed", firewood: "Firewood", gas: "Gas" };
 const isOwner = () => state.profile?.role === "owner";
@@ -120,6 +125,7 @@ function leaveApp() {
   state.profile = null;
   state.bookings = [];
   if (state.channel) { sb.removeChannel(state.channel); state.channel = null; }
+  closeBill();
   closeSheet();
   show("appView", false);
   show("loginView");
@@ -140,6 +146,12 @@ async function loadRates() {
     const k = row.key.replace(/_rate$/, "");
     if (EXTRAS.includes(k)) state.rates[k] = num(row.value);
   }
+}
+
+async function loadBusiness() {
+  const { data, error } = await sb.from("business_profile").select("*").eq("id", 1).maybeSingle();
+  state.businessLoaded = !error && !!data;
+  if (state.businessLoaded) BIZ_FIELDS.forEach((k) => (state.business[k] = data[k] ?? ""));
 }
 
 async function loadBookings() {
@@ -170,7 +182,7 @@ async function loadUpcoming() {
 }
 
 async function reloadAll() {
-  await Promise.all([loadHouses(), loadRates()]);
+  await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
   await Promise.all([loadBookings(), loadUpcoming()]);
   renderRegister();
@@ -186,6 +198,7 @@ function subscribeLive() {
     .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "houses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "business_profile" }, later)
     .subscribe();
   // Catch up when the phone wakes the app again.
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state.profile) later(); });
@@ -451,6 +464,7 @@ async function openSheet(b = null) {
     $("check_in").value = todayISO();
   }
   state.gstTouched = !!b;
+  show("billBtn", !!b);
   const del = $("deleteBtn");
   show(del, !!b && isOwner());
   del.classList.remove("armed");
@@ -465,7 +479,11 @@ async function openSheet(b = null) {
 function closeSheet() { show("sheet", false); state.editing = null; }
 $("newBtn").addEventListener("click", () => openSheet());
 document.querySelectorAll("[data-close]").forEach((el) => el.addEventListener("click", closeSheet));
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("billView").hidden) closeBill();
+  else if (!$("sheet").hidden) closeSheet();
+});
 
 function formError(msg) { const e = $("formErr"); e.textContent = msg; show(e); e.scrollIntoView({ block: "nearest" }); }
 
@@ -521,6 +539,55 @@ $("saveBtn").addEventListener("click", async () => {
   }
 });
 
+// ════════════════════════════ Guest bill ════════════════════════════
+// The bill is built from the saved booking, so unsaved edits must be saved first.
+function formMatchesSaved() {
+  const f = readForm(), s = state.editing;
+  return [...MONEY, ...EXTRAS].every((k) => num(f[k]) === num(s[k]))
+    && TEXT.every((k) => f[k] === String(s[k] ?? "").trim())
+    && f.house_id === s.house_id && f.serial === s.serial;
+}
+
+$("billBtn").addEventListener("click", async () => {
+  show("formErr", false);
+  if (!formMatchesSaved()) return formError("Save your changes first, then print the bill.");
+  const btn = $("billBtn");
+  btn.disabled = true;
+  try {
+    let b = state.editing;
+    if (!b.bill_no) {
+      const { data, error } = await sb.rpc("assign_bill_no", { p_booking: b.id });
+      if (error) {
+        return formError(/assign_bill_no|function|schema cache/i.test(error.message)
+          ? "Bills aren't set up yet. The owner needs to run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor)."
+          : navigator.onLine ? `Couldn't give this bill a number: ${error.message}` : "You're offline. Connect to the internet to print a bill.");
+      }
+      b = state.editing = { ...b, bill_no: data };
+      $("bill_no").value = data;
+    }
+    openBill(b);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+let titleBeforeBill = document.title;
+function openBill(b) {
+  const biz = { ...state.business, legal_name: state.business.legal_name || BUSINESS_NAME };
+  $("billDoc").innerHTML = billHTML(b, biz, houseName(b.house_id));
+  // Becomes the suggested file name when saving as PDF.
+  titleBeforeBill = document.title;
+  document.title = `Bill ${b.bill_no.replace(/\//g, "-")} ${b.guest_name}`;
+  show("billView");
+  $("billPrintBtn").focus();
+}
+function closeBill() {
+  show("billView", false);
+  document.title = titleBeforeBill;
+}
+$("billCloseBtn").addEventListener("click", closeBill);
+$("billPrintBtn").addEventListener("click", () => window.print());
+
 $("deleteBtn").addEventListener("click", async () => {
   const btn = $("deleteBtn");
   if (!btn.classList.contains("armed")) {
@@ -547,6 +614,13 @@ async function renderSettings() {
     $("ratesErr").textContent = "The charges table isn't set up yet. Run supabase/migrations/002_extra_charges.sql in Supabase (SQL Editor) to save your own rates. Until then the app uses ₹500 for Extra Bed, ₹600 for Firewood and ₹500 for Gas.";
     show("ratesErr");
   } else show("ratesErr", false);
+
+  if (!$("bizForm").contains(document.activeElement)) BIZ_FIELDS.forEach((k) => ($(`biz_${k}`).value = state.business[k]));
+  if (!state.businessLoaded) {
+    $("bizErr").textContent = "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then reopen the app.";
+    show("bizErr");
+  } else show("bizErr", false);
+  updateBizHint();
 
   const { data: people, error } = await sb.from("profiles").select("*").order("created_at");
   if (error) return;
@@ -598,6 +672,38 @@ $("ratesForm").addEventListener("submit", async (e) => {
     return;
   }
   toast("Charges saved");
+  reloadAll();
+});
+
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+function updateBizHint() {
+  const p = $("biz_invoice_prefix").value.trim().toUpperCase();
+  const d = new Date();
+  const fy = d.getFullYear() - (d.getMonth() < 3 ? 1 : 0);
+  const n = `${p ? p + "/" : ""}${String(fy % 100).padStart(2, "0")}-${String((fy + 1) % 100).padStart(2, "0")}/`;
+  $("bizHint").textContent = `Bills are numbered ${n}0001, ${n}0002 and so on, starting again each April.`;
+}
+$("biz_invoice_prefix").addEventListener("input", updateBizHint);
+
+$("bizForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("bizErr", false);
+  const row = { id: 1, updated_at: new Date().toISOString() };
+  BIZ_FIELDS.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
+  row.gstin = row.gstin.toUpperCase().replace(/\s/g, "");
+  row.invoice_prefix = row.invoice_prefix.toUpperCase();
+  const fail = (msg) => { $("bizErr").textContent = msg; show("bizErr"); };
+  if (row.gstin && !GSTIN_RE.test(row.gstin)) return fail("That GSTIN doesn't look right. It has 15 characters, like 32ABCDE1234F1Z5.");
+  if (!/^[A-Z0-9]{0,5}$/.test(row.invoice_prefix)) return fail("Use up to 5 letters or numbers for the bill number prefix.");
+  const { error } = await sb.from("business_profile").upsert(row);
+  if (error) {
+    return fail(/business_profile|relation|schema cache/i.test(error.message)
+      ? "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then try again."
+      : "Couldn't save the bill details. Check your connection and try again.");
+  }
+  document.activeElement?.blur();
+  toast("Bill details saved");
   reloadAll();
 });
 

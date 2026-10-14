@@ -63,6 +63,33 @@ export function suggestGstPct(tariff, nights) {
   return 18;
 }
 
+/** GST on accommodation is always intra-state (place of supply is the property), so split it equally into CGST and SGST. */
+export function splitGst(gstAmount) {
+  const cgst = r2(num(gstAmount) / 2);
+  return { cgst, sgst: r2(num(gstAmount) - cgst) };
+}
+
+const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+const below100 = (n) => (n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : ""));
+const join = (a, b) => (b ? `${a} ${b}` : a);
+function intWords(n) {
+  if (n >= 1e7) return join(`${intWords(Math.floor(n / 1e7))} Crore`, intWords(n % 1e7));
+  if (n >= 1e5) return join(`${below100(Math.floor(n / 1e5))} Lakh`, intWords(n % 1e5));
+  if (n >= 1000) return join(`${below100(Math.floor(n / 1000))} Thousand`, intWords(n % 1000));
+  if (n >= 100) return join(`${ONES[Math.floor(n / 100)]} Hundred`, below100(n % 100));
+  return below100(n);
+}
+
+/** 3148.95 -> "Rupees Three Thousand One Hundred Forty-Eight and Ninety-Five Paise Only" (Indian lakh/crore system). */
+export function amountInWords(amount) {
+  const paiseTotal = Math.round(Math.abs(r2(amount)) * 100);
+  const rupees = Math.floor(paiseTotal / 100);
+  const paise = paiseTotal % 100;
+  return `Rupees ${intWords(rupees) || "Zero"}${paise ? ` and ${below100(paise)} Paise` : ""} Only`;
+}
+
 /** True when [aIn, aOut) and [bIn, bOut) share at least one night. */
 export function staysOverlap(aIn, aOut, bIn, bOut) {
   return dayNumber(aIn) < dayNumber(bOut) && dayNumber(aOut) > dayNumber(bIn);
