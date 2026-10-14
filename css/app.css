@@ -136,6 +136,10 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 
 /* settings */
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.sig-edit { background: #fff; border: 1px solid var(--line); border-radius: 6px; min-height: 80px; display: grid; place-items: center; padding: 8px; }
+.sig-edit img { max-height: 70px; max-width: 100%; }
+.sig-edit .muted { color: #5d6b64; }
+.vh { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
 .staff { display: flex; flex-direction: column; }
 .staff-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .staff-row .nm { flex: 1 1 180px; min-width: 0; }
@@ -210,6 +214,8 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 .bill-status.due { color: #b3261e; background: #fbe3e1; }
 .bill-foot { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--rule); padding-top: 14px; }
 .bill-foot .sign { align-self: flex-end; text-align: right; margin-top: 28px; }
+.bill-foot .sign img { display: block; height: 60px; max-width: 240px; object-fit: contain; margin: 4px 0 -6px auto; }
+.bill-foot .sign img + span { margin-top: 0; }
 .bill-foot .sign span { display: block; margin-top: 36px; border-top: 1px solid var(--ink); padding-top: 4px; color: var(--soft); }
 .bill-foot .small { color: var(--soft); text-align: center; }
 @media (max-width: 480px) { .bill-scroll { padding: 8px; } .bill-doc { padding: 16px; } .bill-meta h2 { text-align: left; } }

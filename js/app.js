@@ -49,8 +49,9 @@ const state = {
   ratesLoaded: false,
   extras: { extra_bed: 0, firewood: 0, gas: 0 },
   // Business details printed on the guest bill (business_profile table)
-  business: { legal_name: "", address: "", phone: "", email: "", gstin: "", state: "", invoice_prefix: "TSR", footer_note: "" },
+  business: { legal_name: "", address: "", phone: "", email: "", gstin: "", state: "", invoice_prefix: "TSR", footer_note: "", signature: "" },
   businessLoaded: false,
+  sigDraft: null,    // signature picked in Settings but not saved yet ("" = removed)
 };
 const BIZ_FIELDS = ["legal_name", "address", "phone", "email", "gstin", "state", "invoice_prefix", "footer_note"];
 const EXTRAS = ["extra_bed", "firewood", "gas"];
@@ -151,7 +152,7 @@ async function loadRates() {
 async function loadBusiness() {
   const { data, error } = await sb.from("business_profile").select("*").eq("id", 1).maybeSingle();
   state.businessLoaded = !error && !!data;
-  if (state.businessLoaded) BIZ_FIELDS.forEach((k) => (state.business[k] = data[k] ?? ""));
+  if (state.businessLoaded) [...BIZ_FIELDS, "signature"].forEach((k) => (state.business[k] = data[k] ?? ""));
 }
 
 async function loadBookings() {
@@ -621,6 +622,7 @@ async function renderSettings() {
     show("bizErr");
   } else show("bizErr", false);
   updateBizHint();
+  showSignature();
 
   const { data: people, error } = await sb.from("profiles").select("*").order("created_at");
   if (error) return;
@@ -686,11 +688,78 @@ function updateBizHint() {
 }
 $("biz_invoice_prefix").addEventListener("input", updateBizHint);
 
+// ── signature ──
+function showSignature() {
+  const sig = state.sigDraft ?? state.business.signature;
+  $("sigPreview").src = sig || "";
+  show("sigPreview", !!sig);
+  show("sigNone", !sig);
+  show("sigRemove", !!sig);
+}
+
+/** Crop a signature photo to its ink, make the paper transparent and keep it small. Resolves to a PNG data URL. */
+function prepareSignature(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("That file isn't a picture this phone can open. Try a JPG or PNG.")); };
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      const scale = Math.min(1, 1600 / img.width);
+      const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      const px = ctx.getImageData(0, 0, w, h), d = px.data;
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let i = 0; i < d.length; i += 4) {
+        // Light paper fades out, ink stays; in between is the pen's soft edge.
+        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        const a = Math.round(Math.max(0, Math.min(1, (200 - lum) / 90)) * (d[i + 3] / 255) * 255);
+        d[i + 3] = a;
+        if (a > 60) {
+          const p = i / 4, x = p % w, y = (p - x) / w;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) return reject(new Error("Couldn't find a signature in that picture. Use dark ink on white paper."));
+      ctx.putImageData(px, 0, 0);
+      const pad = 6;
+      x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+      x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+      const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+      const k = Math.min(1, 600 / cw, 200 / ch);
+      const out = document.createElement("canvas");
+      out.width = Math.round(cw * k); out.height = Math.round(ch * k);
+      out.getContext("2d").drawImage(c, x0, y0, cw, ch, 0, 0, out.width, out.height);
+      resolve(out.toDataURL("image/png"));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("sigFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  show("bizErr", false);
+  try {
+    state.sigDraft = await prepareSignature(file);
+    showSignature();
+  } catch (err) {
+    $("bizErr").textContent = err.message;
+    show("bizErr");
+  }
+});
+$("sigRemove").addEventListener("click", () => { state.sigDraft = ""; showSignature(); });
+
 $("bizForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   show("bizErr", false);
   const row = { id: 1, updated_at: new Date().toISOString() };
   BIZ_FIELDS.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
+  // Only send the signature when it changed, so the rest still saves before migration 004 is run.
+  if (state.sigDraft !== null) row.signature = state.sigDraft;
   row.gstin = row.gstin.toUpperCase().replace(/\s/g, "");
   row.invoice_prefix = row.invoice_prefix.toUpperCase();
   const fail = (msg) => { $("bizErr").textContent = msg; show("bizErr"); };
@@ -698,10 +767,13 @@ $("bizForm").addEventListener("submit", async (e) => {
   if (!/^[A-Z0-9]{0,5}$/.test(row.invoice_prefix)) return fail("Use up to 5 letters or numbers for the bill number prefix.");
   const { error } = await sb.from("business_profile").upsert(row);
   if (error) {
-    return fail(/business_profile|relation|schema cache/i.test(error.message)
+    return fail(/signature/i.test(error.message)
+      ? "Signatures aren't set up yet. Run supabase/migrations/004_bill_signature.sql in Supabase (SQL Editor), then try again."
+      : /business_profile|relation|schema cache/i.test(error.message)
       ? "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then try again."
       : "Couldn't save the bill details. Check your connection and try again.");
   }
+  state.sigDraft = null;
   document.activeElement?.blur();
   toast("Bill details saved");
   reloadAll();

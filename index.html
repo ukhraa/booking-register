@@ -121,6 +121,16 @@
             <div class="f"><label for="biz_state">State (place of supply)</label><input id="biz_state" type="text" maxlength="40" placeholder="e.g. Kerala"></div>
             <div class="f"><label for="biz_invoice_prefix">Bill number prefix</label><input id="biz_invoice_prefix" type="text" maxlength="5" autocapitalize="characters" autocomplete="off"></div>
             <div class="f wide"><label for="biz_footer_note">Note at the bottom of the bill</label><input id="biz_footer_note" type="text" maxlength="200"></div>
+            <div class="f wide">
+              <span class="lbl">Signature (printed above "Authorised signatory")</span>
+              <div class="sig-edit"><img id="sigPreview" alt="Your signature" hidden><span class="muted small" id="sigNone">No signature yet</span></div>
+              <div class="actions">
+                <label class="btn" for="sigFile">Choose image…</label>
+                <input id="sigFile" class="vh" type="file" accept="image/*">
+                <button class="btn ghost" type="button" id="sigRemove">Remove</button>
+              </div>
+              <p class="hint">A photo or scan of your signature on white paper. The background is removed automatically. Tap Save bill details to keep it.</p>
+            </div>
           </div>
           <p class="hint" id="bizHint"></p>
           <p class="err" id="bizErr" hidden></p>

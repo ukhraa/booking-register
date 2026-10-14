@@ -101,6 +101,7 @@ If you set up the database before a feature was added, run the matching file fro
 |---|---|
 | `002_extra_charges.sql` | Editable rates for Extra Bed, Firewood and Gas |
 | `003_guest_bill.sql` | Printable guest bill: business details and automatic bill numbers |
+| `004_bill_signature.sql` | Owner's signature on the guest bill |
 
 ## Updating the app
 
