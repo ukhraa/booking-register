@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV,
+  calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV, splitGst, amountInWords,
 } from "../js/calc.js";
 
 test("nights between dates, across month and year ends", () => {
@@ -63,6 +63,23 @@ test("month range handles February and 31-day months", () => {
   assert.deepEqual(monthRange("2026-02"), ["2026-02-01", "2026-02-28"]);
   assert.deepEqual(monthRange("2028-02"), ["2028-02-01", "2028-02-29"]);
   assert.deepEqual(monthRange("2026-10"), ["2026-10-01", "2026-10-31"]);
+});
+
+test("GST splits into CGST + SGST that add back to the total", () => {
+  assert.deepEqual(splitGst(450), { cgst: 225, sgst: 225 });
+  const s = splitGst(149.95);
+  assert.equal(Math.round((s.cgst + s.sgst) * 100), 14995);
+  assert.deepEqual(splitGst(0), { cgst: 0, sgst: 0 });
+});
+
+test("amount in words uses lakh and crore", () => {
+  assert.equal(amountInWords(0), "Rupees Zero Only");
+  assert.equal(amountInWords(10950), "Rupees Ten Thousand Nine Hundred Fifty Only");
+  assert.equal(amountInWords(3148.95), "Rupees Three Thousand One Hundred Forty-Eight and Ninety-Five Paise Only");
+  assert.equal(amountInWords(100000), "Rupees One Lakh Only");
+  assert.equal(amountInWords(1001), "Rupees One Thousand One Only");
+  assert.equal(amountInWords(12345678), "Rupees One Crore Twenty-Three Lakh Forty-Five Thousand Six Hundred Seventy-Eight Only");
+  assert.equal(amountInWords(0.5), "Rupees Zero and Fifty Paise Only");
 });
 
 test("CSV escapes commas and quotes in notes", () => {
