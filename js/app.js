@@ -43,7 +43,13 @@ const state = {
   gstTouched: false,
   overlapAck: false,
   channel: null,
+  // Yes/No extras: current rates from Settings, and the amounts on the open form
+  rates: { extra_bed: 500, firewood: 600, gas: 500 },
+  ratesLoaded: false,
+  extras: { extra_bed: 0, firewood: 0, gas: 0 },
 };
+const EXTRAS = ["extra_bed", "firewood", "gas"];
+const EXTRA_LABEL = { extra_bed: "Extra Bed", firewood: "Firewood", gas: "Gas" };
 const isOwner = () => state.profile?.role === "owner";
 const houseName = (id) => state.houses.find((h) => h.id === id)?.name ?? `Apartment ${id}`;
 
@@ -126,6 +132,16 @@ async function loadHouses() {
   if (!error) state.houses = data;
 }
 
+async function loadRates() {
+  const { data, error } = await sb.from("settings").select("key,value");
+  if (error) { state.ratesLoaded = false; return; } // table missing: keep defaults
+  state.ratesLoaded = true;
+  for (const row of data) {
+    const k = row.key.replace(/_rate$/, "");
+    if (EXTRAS.includes(k)) state.rates[k] = num(row.value);
+  }
+}
+
 async function loadBookings() {
   const month = $("fMonth").value;
   show("loading");
@@ -154,7 +170,7 @@ async function loadUpcoming() {
 }
 
 async function reloadAll() {
-  await loadHouses();
+  await Promise.all([loadHouses(), loadRates()]);
   buildHouseSelects();
   await Promise.all([loadBookings(), loadUpcoming()]);
   renderRegister();
@@ -169,6 +185,7 @@ function subscribeLive() {
   state.channel = sb.channel("register")
     .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "houses" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, later)
     .subscribe();
   // Catch up when the phone wakes the app again.
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state.profile) later(); });
@@ -337,13 +354,16 @@ document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click",
 }));
 
 // ════════════════════════════ Booking form ════════════════════════════
-const MONEY = ["tariff", "gst_pct", "food_bill", "extra_bed", "firewood", "gas", "advance_ota", "paid_cash", "cash_received", "tips", "paid_upi"];
+// Typed money fields. Extra Bed, Firewood and Gas are Yes/No dropdowns (see EXTRAS)
+// whose amount comes from the rates in Settings.
+const MONEY = ["tariff", "gst_pct", "food_bill", "advance_ota", "paid_cash", "cash_received", "tips", "paid_upi"];
 const TEXT = ["booking_type", "guest_name", "check_in", "check_out", "bill_no", "notes"];
 const FIELDS = ["serial", "house_id", ...TEXT, ...MONEY];
 
 function readForm() {
   const o = {};
   MONEY.forEach((f) => (o[f] = $(f).value === "" ? 0 : Number($(f).value)));
+  EXTRAS.forEach((f) => (o[f] = state.extras[f]));
   TEXT.forEach((f) => (o[f] = $(f).value.trim()));
   o.house_id = Number($("house_id").value);
   o.serial = $("serial").value === "" ? null : Number($("serial").value);
@@ -358,6 +378,11 @@ function updatePreview() {
     if (s !== null) { $("gst_pct").value = s; b.gst_pct = s; }
   }
   const c = calcBooking(b);
+  EXTRAS.forEach((k) => ($(`o_${k}`).textContent = formatINR(state.extras[k])));
+  const changed = EXTRAS.filter((k) => state.extras[k] > 0 && state.extras[k] !== state.rates[k]);
+  $("extrasHint").textContent = changed.length
+    ? `Saved with an older rate: ${changed.map((k) => `${EXTRA_LABEL[k]} ${formatINR(state.extras[k])}`).join(", ")}. Set it to No and back to Yes to use today's rate.`
+    : "";
   $("o_nights").textContent = c.nights;
   $("o_gst").textContent = formatINR(c.gstAmount);
   $("o_total_tariff").textContent = formatINR(c.totalTariff);
@@ -388,6 +413,18 @@ FIELDS.forEach((f) => $(f).addEventListener("input", () => {
 }));
 $("gst_pct").addEventListener("input", () => (state.gstTouched = true));
 
+// Yes/No extras: Yes adds the current rate from Settings, No clears it.
+EXTRAS.forEach((k) => $(`${k}_yn`).addEventListener("change", (e) => {
+  state.extras[k] = e.target.value === "yes" ? state.rates[k] : 0;
+  updatePreview();
+}));
+function setExtrasFrom(b) {
+  EXTRAS.forEach((k) => {
+    state.extras[k] = b ? num(b[k]) : 0;
+    $(`${k}_yn`).value = state.extras[k] > 0 ? "yes" : "no";
+  });
+}
+
 async function suggestSerial() {
   const { data } = await sb.from("bookings").select("serial").order("serial", { ascending: false }).limit(1);
   return (data?.[0]?.serial ?? 0) + 1;
@@ -401,6 +438,7 @@ async function openSheet(b = null) {
   $("sheetTitle").textContent = b ? `Booking #${b.serial}` : "New booking";
   $("saveBtn").textContent = "Save booking";
   FIELDS.forEach((f) => ($(f).value = b ? b[f] ?? "" : ""));
+  setExtrasFrom(b);
   if (b) {
     MONEY.forEach((f) => { if (f !== "gst_pct" && !num(b[f])) $(f).value = ""; });
     if (b.booking_type && !BOOKING_TYPES.includes(b.booking_type)) {
@@ -503,6 +541,13 @@ async function renderSettings() {
   $("houseInputs").innerHTML = state.houses.map((h) =>
     `<div class="f"><label for="hn${h.id}">Apartment ${h.id}</label><input id="hn${h.id}" data-house="${h.id}" type="text" maxlength="40" value="${esc(h.name)}"></div>`).join("");
 
+  // Don't overwrite a rate the owner is in the middle of typing.
+  EXTRAS.forEach((k) => { if (document.activeElement !== $(`rate_${k}`)) $(`rate_${k}`).value = state.rates[k]; });
+  if (!state.ratesLoaded) {
+    $("ratesErr").textContent = "The charges table isn't set up yet. Run supabase/migrations/002_extra_charges.sql in Supabase (SQL Editor) to save your own rates. Until then the app uses ₹500 for Extra Bed, ₹600 for Firewood and ₹500 for Gas.";
+    show("ratesErr");
+  } else show("ratesErr", false);
+
   const { data: people, error } = await sb.from("profiles").select("*").order("created_at");
   if (error) return;
   $("staffList").innerHTML = people.map((p) => `
@@ -528,6 +573,31 @@ $("housesForm").addEventListener("submit", async (e) => {
     if (error) { $("housesErr").textContent = "Couldn't save the names. Check your connection and try again."; show("housesErr"); return; }
   }
   toast("Apartment names saved");
+  reloadAll();
+});
+
+$("ratesForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("ratesErr", false);
+  const rows = [];
+  for (const k of EXTRAS) {
+    const v = $(`rate_${k}`).value.trim();
+    if (v === "" || !(Number(v) >= 0)) {
+      $("ratesErr").textContent = `Enter an amount of 0 or more for ${EXTRA_LABEL[k]}.`;
+      show("ratesErr");
+      return;
+    }
+    rows.push({ key: `${k}_rate`, value: Number(v), updated_at: new Date().toISOString() });
+  }
+  const { error } = await sb.from("settings").upsert(rows);
+  if (error) {
+    $("ratesErr").textContent = /settings|relation|schema cache/i.test(error.message)
+      ? "The charges table isn't set up yet. Run supabase/migrations/002_extra_charges.sql in Supabase (SQL Editor), then try again."
+      : "Couldn't save the charges. Check your connection and try again.";
+    show("ratesErr");
+    return;
+  }
+  toast("Charges saved");
   reloadAll();
 });
 

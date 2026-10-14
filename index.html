@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Booking Register</title>
-  <meta name="description" content="Bookings, GST and payment register for our apartments">
+  <title>Two Seas Residence</title>
+  <meta name="description" content="Two Seas Residence booking register">
   <meta name="theme-color" content="#1f5e46" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f1512" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Bookings">
+  <meta name="apple-mobile-web-app-title" content="Two Seas">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -33,7 +33,7 @@
   <!-- Login -->
   <main id="loginView" class="center-view" hidden>
     <form id="loginForm" class="card narrow" novalidate>
-      <div class="brand"><img src="icons/icon.svg" alt="" width="40" height="40"><h1 class="biz-name">Booking Register</h1></div>
+      <div class="brand"><img src="icons/icon.svg" alt="" width="40" height="40"><h1 class="biz-name">Two Seas Residence</h1></div>
       <p class="muted">Sign in with the email and password the owner gave you.</p>
       <div class="f"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required></div>
       <div class="f"><label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
@@ -45,7 +45,7 @@
   <!-- App -->
   <div id="appView" hidden>
     <header class="topbar">
-      <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><span class="biz-name">Booking Register</span></div>
+      <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><span class="biz-name">Two Seas Residence</span></div>
       <nav class="tabs" aria-label="Sections">
         <button class="tab" data-tab="register" aria-current="page">Register</button>
         <button class="tab" data-tab="houses">Apartments</button>
@@ -97,6 +97,18 @@
           <div><button class="btn primary" type="submit">Save names</button></div>
         </form>
 
+        <h2>Extra charges</h2>
+        <form id="ratesForm" class="card stack">
+          <p class="muted">The amount added to a booking when Extra Bed, Firewood or Gas is set to Yes. A new rate applies only when you set an item to Yes after the change. Past bookings keep their saved amounts.</p>
+          <div class="grid2">
+            <div class="f"><label for="rate_extra_bed">Extra Bed (₹ per stay)</label><input id="rate_extra_bed" type="number" min="0" step="any" inputmode="decimal"></div>
+            <div class="f"><label for="rate_firewood">Firewood (₹ per stay)</label><input id="rate_firewood" type="number" min="0" step="any" inputmode="decimal"></div>
+            <div class="f"><label for="rate_gas">Gas (₹ per stay)</label><input id="rate_gas" type="number" min="0" step="any" inputmode="decimal"></div>
+          </div>
+          <p class="err" id="ratesErr" hidden></p>
+          <div><button class="btn primary" type="submit">Save charges</button></div>
+        </form>
+
         <h2>Staff</h2>
         <div class="card stack">
           <p class="muted">To add a staff member, create their login in Supabase (<b>Authentication → Users → Add user</b>, tick <i>Auto confirm</i>). They appear here as Staff. Owners can delete bookings and change settings; Staff can add and edit bookings.</p>
@@ -141,10 +153,14 @@
         <fieldset>
           <legend>Extras</legend>
           <div class="f"><label for="food_bill">Food Bill</label><input id="food_bill" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div class="f"><label for="extra_bed">Extra Bed</label><input id="extra_bed" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div class="f"><label for="firewood">Firewood</label><input id="firewood" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div class="f"><label for="gas">Gas</label><input id="gas" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div class="f"><label for="extra_bed_yn">Extra Bed</label><select id="extra_bed_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f calc"><span class="lbl">Extra Bed amount</span><output id="o_extra_bed">₹0</output></div>
+          <div class="f"><label for="firewood_yn">Firewood</label><select id="firewood_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f calc"><span class="lbl">Firewood amount</span><output id="o_firewood">₹0</output></div>
+          <div class="f"><label for="gas_yn">Gas</label><select id="gas_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div class="f calc"><span class="lbl">Gas amount</span><output id="o_gas">₹0</output></div>
           <div class="f calc"><span class="lbl">Gross Total</span><output id="o_gross">₹0</output></div>
+          <p class="hint wide" id="extrasHint"></p>
         </fieldset>
 
         <fieldset>

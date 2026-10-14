@@ -1,12 +1,13 @@
-# Booking Register
+# Two Seas Residence
 
-A booking register for our 6 apartments. It runs in any browser and installs on Android and iPhone like an app.
+The booking register for Two Seas Residence's 6 apartments. It runs in any browser and installs on Android and iPhone like an app.
 
 Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra bed, firewood, gas), OTA advance and cash/UPI payments. The app works out nights, GST, totals and the balance, and flags any booking whose payments don't add up.
 
 - **Register**: monthly list with totals, filters, search and CSV export for Excel/accounts
 - **Apartments**: which apartments are occupied tonight and who's arriving next
-- **Settings** (owner only): rename apartments, give or remove staff access
+- **Extra Bed, Firewood and Gas** are Yes/No choices on the booking form. Yes adds the standard charge automatically: ₹500, ₹600 and ₹500 per stay to start with.
+- **Settings** (owner only): rename apartments, change the Extra Bed, Firewood and Gas charges, give or remove staff access
 - Changes show up live on every phone
 - Warns before double-booking an apartment
 
@@ -90,6 +91,14 @@ It opens full-screen with its own icon, like a normal app.
 The database stores these calculated values itself, so every phone and every export shows the same figures.
 
 ---
+
+## Database updates
+
+If you set up the database before a feature was added, run the matching file from [`supabase/migrations/`](supabase/migrations/) once in **Supabase → SQL Editor**. Each file is safe to run more than once.
+
+| File | Adds |
+|---|---|
+| `002_extra_charges.sql` | Editable rates for Extra Bed, Firewood and Gas |
 
 ## Updating the app
 
