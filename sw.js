@@ -1,7 +1,7 @@
 // Service worker: keeps the app shell on the phone so it opens instantly and offline.
 // Booking data always comes live from Supabase and is never cached here.
 // Bump VERSION whenever you change app files so phones pick up the update.
-const VERSION = "v12";
+const VERSION = "v13";
 const CACHE = `booking-register-${VERSION}`;
 const SHELL = [
   "./",

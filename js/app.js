@@ -448,6 +448,10 @@ function renderToday() {
 const COLOURS = ["green", "red", "orange", "grey", "blue", "purple", "teal", "pink", "yellow"];
 const COLOUR_NAMES = { red: "Red", green: "Green", blue: "Blue", grey: "Grey", orange: "Orange", purple: "Purple", teal: "Teal", pink: "Pink", yellow: "Yellow" };
 const NAME_COLOURS = [["amazon", "green"], ["bhoomi", "red"], ["vismay", "orange"], ["himalaya", "grey"], ["nilgiri", "blue"], ["venus", "purple"]];
+/** First word of a name, without "(3 Bed)" etc.: "Bhoomi (3 Bed)" → "Bhoomi". */
+function shortName(name) {
+  return String(name || "").trim().split(/[\s(\-–,]+/)[0] || String(name || "");
+}
 function houseColour(h) {
   if (h?.color && COLOURS.includes(h.color)) return h.color;
   const n = String(h?.name || "").toLowerCase();
@@ -475,8 +479,11 @@ function renderCalendar() {
   $("calTitle").textContent = `Availability · ${monthName}`;
   $("calToday").disabled = ym === today.slice(0, 7);
 
-  const head = `<thead><tr><th class="corner" scope="col">Date</th>${houses.map((h) =>
-    `<th scope="col" class="c-${houseColour(h)}">${esc(h.name)}</th>`).join("")}<th scope="col" class="freecol">Free</th></tr></thead>`;
+  // Every label has a full and a short form; narrow screens show the short one
+  // so all apartments fit across without sideways scrolling.
+  const both = (full, short) => `<span class="lf">${esc(full)}</span><span class="ls" aria-hidden="true">${esc(short)}</span>`;
+  const head = `<thead><tr><th class="corner" scope="col">${both("Date", "")}</th>${houses.map((h) =>
+    `<th scope="col" class="c-${houseColour(h)}" title="${esc(h.name)}">${both(h.name, shortName(h.name))}</th>`).join("")}<th scope="col" class="freecol" title="Free apartments">${both("Free", "Free")}</th></tr></thead>`;
 
   const body = grid.map(({ date, cells }) => {
     const d = new Date(`${date}T00:00:00`);
@@ -491,24 +498,24 @@ function renderCalendar() {
         return `<td class="free"><button type="button" data-free="${h.id}" data-date="${date}" aria-label="Free: ${esc(h.name)}, ${formatDate(date)}. Book from this night"></button></td>`;
       }
       if (c.stays.length > 1) {
-        return `<td class="clash" data-id="${c.stays[0].id}" title="Double booked"><b>Double booked</b><span>${c.stays.map((s) => esc(s.guest_name)).join(" · ")}</span></td>`;
+        return `<td class="clash" data-id="${c.stays[0].id}" title="Double booked: ${c.stays.map((s) => esc(s.guest_name)).join(", ")}"><b>${both("Double booked", `${c.stays.length}×`)}</b><span class="lf">${c.stays.map((s) => esc(s.guest_name)).join(" · ")}</span></td>`;
       }
       const s = c.stays[0];
       const last = s.check_out === addDays(date, 1);
       const cls = ["booked", `c-${colour}`, c.first ? "start" : "", last ? "end" : ""].join(" ");
       const label = c.first
-        ? `<b>${esc(s.guest_name)}</b><span>${esc(s.booking_type)} · ${s.nights}N</span>`
+        ? `<b>${both(s.guest_name, shortName(s.guest_name))}</b><span class="lf">${esc(s.booking_type)} · ${s.nights}N</span>`
         : "";
       return `<td class="${cls}" data-id="${s.id}" title="${esc(s.guest_name)} · ${formatDate(s.check_in)} → ${formatDate(s.check_out)}">${label}</td>`;
     }).join("");
     return `<tr class="${date === today ? "is-today" : ""} ${weekend ? "wknd" : ""}"><th scope="row"><b>${Number(date.slice(8))}</b><small>${dow}</small></th>${tds}<td class="freecol ${free === 0 ? "full" : ""}">${free}</td></tr>`;
   }).join("");
 
-  const foot = `<tfoot><tr><th scope="row">Booked</th>${houses.map((h) =>
-    `<td>${occ[h.id].nights}/${grid.length}<small>${occ[h.id].pct}%</small></td>`).join("")}<td class="freecol"></td></tr></tfoot>`;
+  const foot = `<tfoot><tr><th scope="row">${both("Booked", "%")}</th>${houses.map((h) =>
+    `<td><span class="lf">${occ[h.id].nights}/${grid.length}</span><small>${occ[h.id].pct}%</small></td>`).join("")}<td class="freecol"></td></tr></tfoot>`;
 
   $("calTable").style.setProperty("--cols", houses.length);
-  $("calTable").innerHTML = `<colgroup><col class="date">${houses.map(() => "<col>").join("")}<col style="width:48px"></colgroup>` + head + `<tbody>${body}</tbody>` + foot;
+  $("calTable").innerHTML = `<colgroup><col class="date">${houses.map(() => "<col>").join("")}<col class="freecol"></colgroup>` + head + `<tbody>${body}</tbody>` + foot;
 }
 
 // Show today's row (with a couple of days above it) when the grid opens.

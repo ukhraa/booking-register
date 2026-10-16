@@ -222,8 +222,10 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .monthnav #calToday { font-size: 13px; }
 .cal-help { margin: -6px 0 0; }
 .calbox { overflow: auto; max-height: max(380px, calc(100dvh - 250px)); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
-.cal { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; min-width: calc(56px + var(--cols, 6) * 92px + 48px); font-size: 12px; }
+.cal { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; font-size: 12px; }
 .cal col.date { width: 56px; }
+.cal col.freecol { width: 48px; }
+.cal .ls { display: none !important; }
 .cal th, .cal td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; height: 40px; text-align: left; vertical-align: top; text-transform: none; letter-spacing: 0; white-space: normal; }
 .cal thead th { position: sticky; top: 0; z-index: 3; height: auto; padding: 8px 8px 7px; font-family: var(--display); font-size: 13px; font-weight: 700; line-height: 1.2; vertical-align: bottom; background: var(--cbg, var(--sunk)); color: var(--cink, var(--fg)); border-bottom: 3px solid var(--cedge, var(--line)); }
 .cal thead th.corner { left: 0; z-index: 4; background: var(--sunk); color: var(--muted); font-family: var(--body); font-size: 11px; font-weight: 600; }
@@ -254,6 +256,33 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .cal tfoot th, .cal tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--sunk); padding: 6px 8px; height: auto; font-family: var(--mono); font-size: 12px; vertical-align: middle; border-bottom: 0; }
 .cal tfoot th { left: 0; z-index: 3; font-family: var(--body); font-size: 11px; font-weight: 600; color: var(--muted); }
 .cal tfoot td small { display: block; color: var(--muted); }
+
+/* Narrow screens: every apartment fits across. Short names, first names only,
+   slimmer rows; tap a block for the full booking. */
+@media (max-width: 759px) {
+  .cal { font-size: 10.5px; }
+  .cal .lf { display: none !important; }
+  .cal .ls { display: inline !important; }
+  .cal col.date { width: 34px; }
+  .cal col.freecol { width: 26px; }
+  .cal th, .cal td { height: 30px; }
+  .cal thead th { padding: 6px 1px 5px; font-size: 10.5px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom-width: 3px; }
+  .cal thead th.freecol { font-size: 9px; padding-inline: 0; }
+  .cal tbody th { padding: 3px 2px; text-align: center; }
+  .cal tbody th b { font-size: 13px; }
+  .cal tbody th small { font-size: 9px; }
+  .cal td.booked { padding: 3px 2px 0 3px; border-left-width: 2px; }
+  .cal td.booked b, .cal td.clash b { font-size: 10.5px; font-weight: 600; text-overflow: clip; }
+  .cal td.clash { padding: 3px 2px; text-align: center; }
+  .cal td.free button { min-height: 29px; }
+  .cal td.freecol { font-size: 11px; }
+  .cal tfoot th, .cal tfoot td { padding: 4px 1px; font-size: 10px; text-align: center; }
+  .cal tfoot td small { color: var(--fg); font-size: 10px; }
+}
+@media (max-width: 380px) {
+  .cal thead th { font-size: 9.5px; text-overflow: clip; letter-spacing: -.01em; }
+  .cal td.booked b { font-size: 10px; }
+}
 
 /* Settings: apartment name + colour */
 .house-edit { display: grid; grid-template-columns: 1fr 130px; gap: 8px; }
