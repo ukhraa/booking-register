@@ -99,11 +99,11 @@
 
         <h2>Extra charges</h2>
         <form id="ratesForm" class="card stack">
-          <p class="muted">The amount added to a booking when Extra Bed, Firewood or Gas is set to Yes. A new rate applies only when you set an item to Yes after the change. Past bookings keep their saved amounts.</p>
+          <p class="muted">Charge per day for Extra Bed, Firewood and Gas. On a booking, the amount is this rate × the number of days used. A new rate applies only when you set an item to Yes after the change. Past bookings keep their saved amounts.</p>
           <div class="grid2">
-            <div class="f"><label for="rate_extra_bed">Extra Bed (₹ per stay)</label><input id="rate_extra_bed" type="number" min="0" step="any" inputmode="decimal"></div>
-            <div class="f"><label for="rate_firewood">Firewood (₹ per stay)</label><input id="rate_firewood" type="number" min="0" step="any" inputmode="decimal"></div>
-            <div class="f"><label for="rate_gas">Gas (₹ per stay)</label><input id="rate_gas" type="number" min="0" step="any" inputmode="decimal"></div>
+            <div class="f"><label for="rate_extra_bed">Extra Bed (₹ per day)</label><input id="rate_extra_bed" type="number" min="0" step="any" inputmode="decimal"></div>
+            <div class="f"><label for="rate_firewood">Firewood (₹ per day)</label><input id="rate_firewood" type="number" min="0" step="any" inputmode="decimal"></div>
+            <div class="f"><label for="rate_gas">Gas (₹ per day)</label><input id="rate_gas" type="number" min="0" step="any" inputmode="decimal"></div>
           </div>
           <p class="err" id="ratesErr" hidden></p>
           <div><button class="btn primary" type="submit">Save charges</button></div>
@@ -181,14 +181,23 @@
         <fieldset>
           <legend>Extras</legend>
           <div class="f"><label for="food_bill">Food Bill</label><input id="food_bill" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div class="f"><label for="extra_bed_yn">Extra Bed</label><select id="extra_bed_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
-          <div class="f calc"><span class="lbl">Extra Bed amount</span><output id="o_extra_bed">₹0</output></div>
-          <div class="f"><label for="firewood_yn">Firewood</label><select id="firewood_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
-          <div class="f calc"><span class="lbl">Firewood amount</span><output id="o_firewood">₹0</output></div>
-          <div class="f"><label for="gas_yn">Gas</label><select id="gas_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
-          <div class="f calc"><span class="lbl">Gas amount</span><output id="o_gas">₹0</output></div>
-          <div class="f calc"><span class="lbl">Gross Total</span><output id="o_gross">₹0</output></div>
+          <div class="extra-row wide">
+            <div class="f"><label for="extra_bed_yn">Extra Bed</label><select id="extra_bed_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+            <div class="f"><label for="extra_bed_days">Days</label><input id="extra_bed_days" type="number" min="0" max="365" step="1" inputmode="numeric" disabled></div>
+            <div class="f calc"><span class="lbl" id="l_extra_bed">Amount</span><output id="o_extra_bed">₹0</output></div>
+          </div>
+          <div class="extra-row wide">
+            <div class="f"><label for="firewood_yn">Firewood</label><select id="firewood_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+            <div class="f"><label for="firewood_days">Days</label><input id="firewood_days" type="number" min="0" max="365" step="1" inputmode="numeric" disabled></div>
+            <div class="f calc"><span class="lbl" id="l_firewood">Amount</span><output id="o_firewood">₹0</output></div>
+          </div>
+          <div class="extra-row wide">
+            <div class="f"><label for="gas_yn">Gas</label><select id="gas_yn"><option value="no">No</option><option value="yes">Yes</option></select></div>
+            <div class="f"><label for="gas_days">Days</label><input id="gas_days" type="number" min="0" max="365" step="1" inputmode="numeric" disabled></div>
+            <div class="f calc"><span class="lbl" id="l_gas">Amount</span><output id="o_gas">₹0</output></div>
+          </div>
           <p class="hint wide" id="extrasHint"></p>
+          <div class="f calc"><span class="lbl">Gross Total</span><output id="o_gross">₹0</output></div>
         </fieldset>
 
         <fieldset>

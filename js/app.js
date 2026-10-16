@@ -2,6 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from "./config.js";
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
+  extraAmount, extraRate, nightsBetween,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
 
@@ -47,7 +48,13 @@ const state = {
   // Yes/No extras: current rates from Settings, and the amounts on the open form
   rates: { extra_bed: 500, firewood: 600, gas: 500 },
   ratesLoaded: false,
-  extras: { extra_bed: 0, firewood: 0, gas: 0 },
+  // Per-day extras on the open form. rate = ₹ per day locked in when set to Yes
+  // (or the saved rate when editing); auto = days follow the number of nights.
+  extras: {
+    extra_bed: { on: false, rate: 0, auto: true },
+    firewood: { on: false, rate: 0, auto: true },
+    gas: { on: false, rate: 0, auto: true },
+  },
   // Business details printed on the guest bill (business_profile table)
   business: { legal_name: "", address: "", phone: "", email: "", gstin: "", state: "", invoice_prefix: "TSR", footer_note: "", signature: "" },
   businessLoaded: false,
@@ -368,8 +375,8 @@ document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click",
 }));
 
 // ════════════════════════════ Booking form ════════════════════════════
-// Typed money fields. Extra Bed, Firewood and Gas are Yes/No dropdowns (see EXTRAS)
-// whose amount comes from the rates in Settings.
+// Typed money fields. Extra Bed, Firewood and Gas (see EXTRAS) are Yes/No + Days;
+// their amount is the rate per day from Settings × days.
 const MONEY = ["tariff", "gst_pct", "food_bill", "advance_ota", "paid_cash", "cash_received", "tips", "paid_upi"];
 const TEXT = ["booking_type", "guest_name", "check_in", "check_out", "bill_no", "notes"];
 const FIELDS = ["serial", "house_id", ...TEXT, ...MONEY];
@@ -377,7 +384,12 @@ const FIELDS = ["serial", "house_id", ...TEXT, ...MONEY];
 function readForm() {
   const o = {};
   MONEY.forEach((f) => (o[f] = $(f).value === "" ? 0 : Number($(f).value)));
-  EXTRAS.forEach((f) => (o[f] = state.extras[f]));
+  EXTRAS.forEach((k) => {
+    const x = state.extras[k];
+    const days = x.on ? Math.max(0, Math.floor(num($(`${k}_days`).value))) : 0;
+    o[`${k}_days`] = days;
+    o[k] = x.on ? extraAmount(x.rate, days) : 0;
+  });
   TEXT.forEach((f) => (o[f] = $(f).value.trim()));
   o.house_id = Number($("house_id").value);
   o.serial = $("serial").value === "" ? null : Number($("serial").value);
@@ -392,11 +404,18 @@ function updatePreview() {
     if (s !== null) { $("gst_pct").value = s; b.gst_pct = s; }
   }
   const c = calcBooking(b);
-  EXTRAS.forEach((k) => ($(`o_${k}`).textContent = formatINR(state.extras[k])));
-  const changed = EXTRAS.filter((k) => state.extras[k] > 0 && state.extras[k] !== state.rates[k]);
-  $("extrasHint").textContent = changed.length
-    ? `Saved with an older rate: ${changed.map((k) => `${EXTRA_LABEL[k]} ${formatINR(state.extras[k])}`).join(", ")}. Set it to No and back to Yes to use today's rate.`
-    : "";
+  EXTRAS.forEach((k) => {
+    const x = state.extras[k], days = b[`${k}_days`];
+    $(`o_${k}`).textContent = formatINR(b[k]);
+    $(`l_${k}`).textContent = x.on ? `${formatINR(x.rate)} × ${days} day${days === 1 ? "" : "s"}` : "Amount";
+  });
+  const notes = [];
+  const older = EXTRAS.filter((k) => state.extras[k].on && state.extras[k].rate !== state.rates[k]);
+  if (older.length) notes.push(`Saved with an older rate: ${older.map((k) => `${EXTRA_LABEL[k]} ${formatINR(state.extras[k].rate)}/day`).join(", ")}. Set it to No and back to Yes to use today's rate.`);
+  const tooMany = EXTRAS.filter((k) => c0.nights && b[`${k}_days`] > c0.nights + 1);
+  if (tooMany.length) notes.push(`${tooMany.map((k) => EXTRA_LABEL[k]).join(" and ")}: more days than the ${c0.nights}-night stay. Check the number.`);
+  $("extrasHint").textContent = notes.join(" ");
+  $("extrasHint").className = `hint wide ${tooMany.length ? "warn" : ""}`;
   $("o_nights").textContent = c.nights;
   $("o_gst").textContent = formatINR(c.gstAmount);
   $("o_total_tariff").textContent = formatINR(c.totalTariff);
@@ -423,19 +442,43 @@ function updatePreview() {
 
 FIELDS.forEach((f) => $(f).addEventListener("input", () => {
   if (["house_id", "check_in", "check_out"].includes(f)) { state.overlapAck = false; $("stayHint").dataset.overlap = ""; $("saveBtn").textContent = "Save booking"; }
+  if (f === "check_in" || f === "check_out") followNights();
   updatePreview();
 }));
+
+// Days for an extra start at the number of nights and follow date changes
+// until staff type their own number.
+const stayNights = () => nightsBetween($("check_in").value, $("check_out").value);
+function followNights() {
+  const n = stayNights();
+  if (!n) return;
+  EXTRAS.forEach((k) => { if (state.extras[k].on && state.extras[k].auto) $(`${k}_days`).value = n; });
+}
 $("gst_pct").addEventListener("input", () => (state.gstTouched = true));
 
-// Yes/No extras: Yes adds the current rate from Settings, No clears it.
-EXTRAS.forEach((k) => $(`${k}_yn`).addEventListener("change", (e) => {
-  state.extras[k] = e.target.value === "yes" ? state.rates[k] : 0;
-  updatePreview();
-}));
+// Yes locks in today's rate per day and fills Days with the nights; No clears it.
+function setExtraOn(k, on, days, rate) {
+  const x = state.extras[k];
+  x.on = on;
+  x.rate = on ? rate : 0;
+  $(`${k}_yn`).value = on ? "yes" : "no";
+  $(`${k}_days`).disabled = !on;
+  $(`${k}_days`).value = on ? days : "";
+}
+EXTRAS.forEach((k) => {
+  $(`${k}_yn`).addEventListener("change", (e) => {
+    state.extras[k].auto = true;
+    setExtraOn(k, e.target.value === "yes", stayNights() || 1, state.rates[k]);
+    updatePreview();
+  });
+  $(`${k}_days`).addEventListener("input", () => { state.extras[k].auto = false; updatePreview(); });
+});
 function setExtrasFrom(b) {
   EXTRAS.forEach((k) => {
-    state.extras[k] = b ? num(b[k]) : 0;
-    $(`${k}_yn`).value = state.extras[k] > 0 ? "yes" : "no";
+    const amount = b ? num(b[k]) : 0;
+    const days = b ? Math.floor(num(b[`${k}_days`])) || (amount > 0 ? 1 : 0) : 0;
+    state.extras[k].auto = !b || days === b.nights;
+    setExtraOn(k, amount > 0, days, extraRate(amount, days));
   });
 }
 
@@ -506,6 +549,8 @@ $("saveBtn").addEventListener("click", async () => {
   if (state.editing && b.serial === null) return formError("Enter the Serial No.");
   if (b.serial !== null && (!Number.isInteger(b.serial) || b.serial < 1)) return formError("Serial No. must be a whole number like 1, 2, 3.");
   if (MONEY.some((f) => b[f] < 0)) return formError("Amounts can't be negative.");
+  const noDays = EXTRAS.find((k) => state.extras[k].on && b[`${k}_days`] < 1);
+  if (noDays) return formError(`Enter how many days ${EXTRA_LABEL[noDays]} was used, or set it to No.`);
   if (b.gst_pct > 28) return formError("GST % can't be more than 28.");
 
   const btn = $("saveBtn");
@@ -529,6 +574,7 @@ $("saveBtn").addEventListener("click", async () => {
     if (error) {
       if (error.code === "23505") return formError(`Serial No. ${b.serial} is already used. Use ${await suggestSerial()} instead.`);
       if (error.code === "42501") return formError("Your login isn't allowed to make this change. Ask the owner.");
+      if (/_days/.test(error.message)) return formError("The database needs a small update for per-day extras. Ask the owner to run supabase/migrations/005_extra_days.sql in Supabase (SQL Editor).");
       return formError(navigator.onLine ? `Couldn't save: ${error.message}` : "You're offline, so the booking wasn't saved. Try again when you're connected.");
     }
     const wasEdit = !!state.editing;
@@ -544,7 +590,7 @@ $("saveBtn").addEventListener("click", async () => {
 // The bill is built from the saved booking, so unsaved edits must be saved first.
 function formMatchesSaved() {
   const f = readForm(), s = state.editing;
-  return [...MONEY, ...EXTRAS].every((k) => num(f[k]) === num(s[k]))
+  return [...MONEY, ...EXTRAS, ...EXTRAS.map((k) => `${k}_days`)].every((k) => num(f[k]) === num(s[k]))
     && TEXT.every((k) => f[k] === String(s[k] ?? "").trim())
     && f.house_id === s.house_id && f.serial === s.serial;
 }

@@ -87,6 +87,10 @@ create table if not exists public.bookings (
   extra_bed      numeric(12,2) not null default 0 check (extra_bed >= 0),
   firewood       numeric(12,2) not null default 0 check (firewood >= 0),
   gas            numeric(12,2) not null default 0 check (gas >= 0),
+  -- Days each extra was used; amount above = rate per day × days (set by the app)
+  extra_bed_days smallint not null default 0 check (extra_bed_days between 0 and 365),
+  firewood_days  smallint not null default 0 check (firewood_days  between 0 and 365),
+  gas_days       smallint not null default 0 check (gas_days       between 0 and 365),
   gross_total    numeric(12,2) generated always as (
                    tariff + round(tariff * gst_pct / 100, 2) + food_bill + extra_bed + firewood + gas
                  ) stored,                                                                              -- calculated
@@ -115,6 +119,12 @@ create table if not exists public.bookings (
 
 create index if not exists bookings_check_in_idx on public.bookings (check_in);
 create index if not exists bookings_house_dates_idx on public.bookings (house_id, check_in, check_out);
+
+-- Databases created before the per-day extras: add the day columns (migration 005).
+alter table public.bookings
+  add column if not exists extra_bed_days smallint not null default 0 check (extra_bed_days between 0 and 365),
+  add column if not exists firewood_days  smallint not null default 0 check (firewood_days  between 0 and 365),
+  add column if not exists gas_days       smallint not null default 0 check (gas_days       between 0 and 365);
 
 -- Fill in the next serial number when none is given, and stamp who changed what.
 create or replace function public.bookings_before_write()
@@ -200,7 +210,7 @@ create trigger keep_one_owner
   for each row execute function public.keep_one_owner();
 
 -- ─────────────────────────────────────────────────────────────
--- Rates for the Yes/No extras (Extra Bed, Firewood, Gas) on the booking form.
+-- Rates per day for the extras (Extra Bed, Firewood, Gas) on the booking form.
 -- The owner edits them in Settings.
 -- The amount is copied into the booking when saved, so changing a rate
 -- never changes past bookings.

@@ -54,6 +54,18 @@ export function calcBooking(b) {
  * Suggested GST % for a room, by per-night tariff (Indian hotel accommodation
  * slabs after the September 2025 rate change). Staff can always override it.
  */
+/** Charge for a per-day extra (Extra Bed, Firewood, Gas): rate per day × days. */
+export function extraAmount(ratePerDay, days) {
+  const d = Math.max(0, Math.floor(num(days)));
+  return r2(num(ratePerDay) * d);
+}
+
+/** Rate per day of a saved extra; old bookings without days count as 1 day. */
+export function extraRate(amount, days) {
+  const d = Math.floor(num(days));
+  return d > 0 ? r2(num(amount) / d) : r2(num(amount));
+}
+
 export function suggestGstPct(tariff, nights) {
   const t = num(tariff);
   if (!t || !nights) return null;

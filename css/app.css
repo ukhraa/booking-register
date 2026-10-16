@@ -175,6 +175,9 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 fieldset { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 12px 14px 14px; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; min-width: 0; }
 legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: var(--accent); }
 @media (max-width: 420px) { fieldset { grid-template-columns: 1fr 1fr; } }
+/* Per-day extras: Yes/No · Days · Amount on one line, also on phones */
+.extra-row { display: grid; grid-template-columns: 1.1fr .8fr 1.1fr; gap: 10px; min-width: 0; }
+.extra-row input:disabled { opacity: .45; }
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 999px; font-size: 14px; z-index: 30; }
 

@@ -2,7 +2,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV, splitGst, amountInWords,
+  extraAmount, extraRate,
 } from "../js/calc.js";
+
+test("per-day extras: rate × days", () => {
+  assert.equal(extraAmount(500, 3), 1500);   // extra bed × 3 days
+  assert.equal(extraAmount(600, 2), 1200);   // firewood × 2 days
+  assert.equal(extraAmount(500, 0), 0);
+  assert.equal(extraAmount(500, ""), 0);
+  assert.equal(extraAmount(500, -2), 0);
+  assert.equal(extraAmount(450.5, 2), 901);
+  assert.equal(extraRate(1500, 3), 500);
+  assert.equal(extraRate(600, 0), 600);      // saved before per-day: one day
+});
+
+test("per-day extras flow into gross total and balance", () => {
+  const c = calcBooking({
+    check_in: "2026-10-14", check_out: "2026-10-17", tariff: 10500, gst_pct: 5,
+    extra_bed: extraAmount(500, 3), firewood: extraAmount(600, 2), gas: 0, paid_upi: 13725,
+  });
+  assert.equal(c.grossTotal, 11025 + 1500 + 1200);
+  assert.equal(c.totalBalanced, true);
+});
 
 test("nights between dates, across month and year ends", () => {
   assert.equal(nightsBetween("2026-10-10", "2026-10-12"), 2);

@@ -1,6 +1,6 @@
 // Printable guest bill. Pure: builds the bill's HTML from a saved booking and
 // the business details, so the figures always match the register.
-import { calcBooking, splitGst, amountInWords, formatINR, formatDate, num } from "./calc.js";
+import { calcBooking, splitGst, amountInWords, formatINR, formatDate, num, extraRate } from "./calc.js";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -30,8 +30,14 @@ export function billHTML(b, biz, apartment) {
     SAC_ROOM, num(b.tariff),
   ]];
   if (c.gstAmount > 0) lines.push([`CGST @ ${halfPct}%`, "", cgst], [`SGST @ ${halfPct}%`, "", sgst]);
-  [["Food", "food_bill"], ["Extra bed", "extra_bed"], ["Firewood", "firewood"], ["Gas", "gas"]]
-    .forEach(([label, k]) => { if (num(b[k]) > 0) lines.push([label, "", num(b[k])]); });
+  if (num(b.food_bill) > 0) lines.push(["Food", "", num(b.food_bill)]);
+  [["Extra bed", "extra_bed"], ["Firewood", "firewood"], ["Gas", "gas"]].forEach(([label, k]) => {
+    const amount = num(b[k]);
+    if (amount <= 0) return;
+    const days = Math.floor(num(b[`${k}_days`]));
+    const detail = days > 0 ? `<small>${days} day${days === 1 ? "" : "s"} × ${formatINR(extraRate(amount, days))}</small>` : "";
+    lines.push([`${label}${detail}`, "", amount]);
+  });
 
   const advance = num(b.advance_ota);
   const due = c.totalBalance - c.collected;

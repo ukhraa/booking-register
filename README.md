@@ -6,7 +6,7 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 
 - **Register**: monthly list with totals, filters, search and CSV export for Excel/accounts
 - **Apartments**: which apartments are occupied tonight and who's arriving next
-- **Extra Bed, Firewood and Gas** are Yes/No choices on the booking form. Yes adds the standard charge automatically: ₹500, ₹600 and ₹500 per stay to start with.
+- **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
 - **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
 - **Settings** (owner only): rename apartments, change the Extra Bed, Firewood and Gas charges, set the bill details (business name, address, GSTIN, bill number prefix), give or remove staff access
 - Changes show up live on every phone
@@ -102,6 +102,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `002_extra_charges.sql` | Editable rates for Extra Bed, Firewood and Gas |
 | `003_guest_bill.sql` | Printable guest bill: business details and automatic bill numbers |
 | `004_bill_signature.sql` | Owner's signature on the guest bill |
+| `005_extra_days.sql` | Days for Extra Bed, Firewood and Gas (charged per day) |
 
 ## Updating the app
 
