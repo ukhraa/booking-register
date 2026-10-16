@@ -26,6 +26,28 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// ── Light / Dark (Light is the default; the choice is kept on this device) ──
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const meta = document.getElementById("themeColor");
+  if (meta) meta.content = dark ? "#000000" : "#ffffff";
+  document.querySelectorAll(".theme-toggle").forEach((b) => {
+    b.setAttribute("aria-pressed", String(dark));
+    const label = dark ? "Light mode" : "Dark mode";
+    b.title = label;
+    if (b.classList.contains("icon-btn")) b.setAttribute("aria-label", label);
+    const t = b.querySelector(".theme-label");
+    if (t) t.textContent = label;
+  });
+}
+applyTheme(document.documentElement.dataset.theme);
+document.querySelectorAll(".theme-toggle").forEach((b) => b.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem("theme", next); } catch {}
+}));
+
 document.title = BUSINESS_NAME;
 document.querySelectorAll(".biz-name").forEach((el) => (el.textContent = BUSINESS_NAME));
 

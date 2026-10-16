@@ -1,25 +1,24 @@
-/* Booking Register — front-desk ledger look: pine green on cool stone, mono figures. */
+/* Two Seas Residence — Light (default): white with blue. Dark: black with blue.
+   The theme is set on <html data-theme="light|dark"> (see index.html + app.js). */
 :root {
-  --bg: #f3f5f3; --surface: #ffffff; --sunk: #e9eeeb; --line: #d5ddd8;
-  --fg: #17231d; --muted: #5d6b64;
-  --accent: #1f5e46; --accent-ink: #ffffff; --accent-soft: #dcebe3;
-  --ok: #2f7a3d; --ok-soft: #e1f1e3; --warn: #9a5b00; --warn-soft: #fbeed6;
-  --bad: #b3261e; --bad-soft: #fbe3e1;
+  --bg: #ffffff; --surface: #ffffff; --sunk: #f2f5f9; --line: #dde3ec;
+  --fg: #0f1724; --muted: #5a6577;
+  --accent: #1f5fd1; --accent-ink: #ffffff; --accent-soft: #e7eefc;
+  --ok: #1f7a3a; --ok-soft: #e2f3e6; --warn: #985800; --warn-soft: #fcefd8;
+  --bad: #b3261e; --bad-soft: #fce4e2;
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --r: 8px;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1512; --surface: #161e1a; --sunk: #1c2621; --line: #2b3832;
-    --fg: #e4ece7; --muted: #97a69e;
-    --accent: #6fc3a0; --accent-ink: #0b1712; --accent-soft: #1d3a2e;
-    --ok: #7fcf8c; --ok-soft: #1b3322; --warn: #e8b25c; --warn-soft: #3a2c14;
-    --bad: #f2958e; --bad-soft: #3d1c1a;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --bg: #000000; --surface: #0c0e12; --sunk: #15181e; --line: #262b34;
+  --fg: #eef2f8; --muted: #98a2b3;
+  --accent: #5b9bff; --accent-ink: #00122e; --accent-soft: #0f2142;
+  --ok: #6fd28a; --ok-soft: #10291a; --warn: #f0b65c; --warn-soft: #33250f;
+  --bad: #ff8f87; --bad-soft: #3a1513;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -77,7 +76,15 @@ code { font-family: var(--mono); font-size: .9em; background: var(--sunk); paddi
   padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
 }
 .who { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; }
-.who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+#whoName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+
+/* Light / Dark switch: shows a moon in Light (tap for Dark) and a sun in Dark */
+.theme-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn { padding: 5px 8px; display: inline-grid; place-items: center; color: var(--fg); }
+.theme-toggle .sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .moon { display: none; }
+.login-theme { align-self: center; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 
 /* bottom navigation (like a phone app, on every screen size) */
 :root { --nav-h: 62px; }
@@ -197,16 +204,16 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .c-teal   { --cbg: #c4eae4; --cink: #0e4641; --cedge: #2c9c8f; }
 .c-pink   { --cbg: #f7cfe2; --cink: #741644; --cedge: #d24b8b; }
 .c-yellow { --cbg: #f5e9a8; --cink: #574500; --cedge: #c9a400; }
-@media (prefers-color-scheme: dark) {
-  .c-red    { --cbg: #4a211d; --cink: #f6c1ba; --cedge: #e0675c; }
-  .c-green  { --cbg: #213a1c; --cink: #c3e7b8; --cedge: #6cbf58; }
-  .c-orange { --cbg: #472b12; --cink: #f8cfa3; --cedge: #f0953c; }
-  .c-grey   { --cbg: #33383b; --cink: #d6d9db; --cedge: #9aa0a4; }
-  .c-blue   { --cbg: #1c2e4d; --cink: #bcd1f6; --cedge: #6b9be6; }
-  .c-purple { --cbg: #33244a; --cink: #dccbf3; --cedge: #a77de0; }
-  .c-teal   { --cbg: #183c38; --cink: #b5e6df; --cedge: #4dbfb1; }
-  .c-pink   { --cbg: #45202f; --cink: #f5c4da; --cedge: #e2739f; }
-  .c-yellow { --cbg: #3f3712; --cink: #f1e3a0; --cedge: #d8b92b; }
+@media all {
+  :root[data-theme="dark"] .c-red    { --cbg: #4a211d; --cink: #f6c1ba; --cedge: #e0675c; }
+  :root[data-theme="dark"] .c-green  { --cbg: #213a1c; --cink: #c3e7b8; --cedge: #6cbf58; }
+  :root[data-theme="dark"] .c-orange { --cbg: #472b12; --cink: #f8cfa3; --cedge: #f0953c; }
+  :root[data-theme="dark"] .c-grey   { --cbg: #33383b; --cink: #d6d9db; --cedge: #9aa0a4; }
+  :root[data-theme="dark"] .c-blue   { --cbg: #1c2e4d; --cink: #bcd1f6; --cedge: #6b9be6; }
+  :root[data-theme="dark"] .c-purple { --cbg: #33244a; --cink: #dccbf3; --cedge: #a77de0; }
+  :root[data-theme="dark"] .c-teal   { --cbg: #183c38; --cink: #b5e6df; --cedge: #4dbfb1; }
+  :root[data-theme="dark"] .c-pink   { --cbg: #45202f; --cink: #f5c4da; --cedge: #e2739f; }
+  :root[data-theme="dark"] .c-yellow { --cbg: #3f3712; --cink: #f1e3a0; --cedge: #d8b92b; }
 }
 
 /* Availability grid: apartments across, days down */
@@ -306,7 +313,7 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 .bill-bar { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .bill-scroll { flex: 1; overflow-y: auto; padding: 16px; -webkit-overflow-scrolling: touch; }
 .bill-doc {
-  --ink: #17231d; --soft: #5d6b64; --rule: #cfd8d3; --brand: #1f5e46;
+  --ink: #17231d; --soft: #5d6b64; --rule: #d3dae5; --brand: #1f5fd1;
   max-width: 760px; margin: 0 auto; background: #fff; color: var(--ink); color-scheme: light;
   padding: 28px; border-radius: var(--r); box-shadow: 0 2px 12px rgb(0 0 0 / .12);
   font-size: 13px; display: flex; flex-direction: column; gap: 18px;
@@ -324,7 +331,7 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 .bill-parties .k { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--soft); margin-bottom: 2px; }
 .bill-doc table { width: 100%; min-width: 0; font-size: 13px; }
 .bill-doc th, .bill-doc td { white-space: normal; border-bottom: 1px solid var(--rule); padding: 7px 6px; }
-.bill-doc th { position: static; background: #eef2ef; color: var(--soft); }
+.bill-doc th { position: static; background: #eef2f8; color: var(--soft); }
 .bill-doc td.r { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bill-doc tbody tr { cursor: auto; }
 .bill-doc tbody tr:hover td { background: none; }

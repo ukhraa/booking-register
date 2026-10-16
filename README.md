@@ -8,6 +8,7 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
 - **New booking** (the + button) opens the booking form from any screen.
 - **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.
+- **Light and Dark mode**: Light (white and blue) is the default. Tap the moon at the top to switch to Dark (black and blue), and the sun to switch back. Each phone or computer remembers its own choice.
 - Summary, Register, New booking, Availability and Settings are in a tab bar at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
