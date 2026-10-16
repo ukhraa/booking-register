@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV, splitGst, amountInWords,
-  extraAmount, extraRate, financialYear, reportPeriods, periodTotals,
+  extraAmount, extraRate, financialYear, reportPeriods, periodTotals, periodsSpan,
   addDays, availabilityGrid, occupancy,
 } from "../js/calc.js";
 
@@ -42,26 +42,31 @@ test("financial year runs April to March", () => {
   assert.equal(financialYear("2026-01-05").start, "2025-04-01");
 });
 
-test("totals for today, month, year and year to date", () => {
+test("totals for today, month, FY and year to date (1 Jan to today)", () => {
   const rows = [
     { check_in: "2026-10-16", nights: 2, gross_total: 10000, gst_amount: 450, advance_ota: 9450, paid_cash: 0, paid_upi: 550 },
     { check_in: "2026-10-03", nights: 3, gross_total: 14500, gst_amount: 600, advance_ota: 5000, paid_cash: 4000, paid_upi: 5500 },
     { check_in: "2026-06-10", nights: 1, gross_total: 3000, gst_amount: 0, advance_ota: 0, paid_cash: 3000, paid_upi: 0 },
     { check_in: "2026-12-20", nights: 4, gross_total: 20000, gst_amount: 900, advance_ota: 20000, paid_cash: 0, paid_upi: 0 }, // future, same FY
-    { check_in: "2026-03-30", nights: 2, gross_total: 7000, gst_amount: 0, advance_ota: 0, paid_cash: 7000, paid_upi: 0 },  // last FY
+    { check_in: "2026-03-30", nights: 2, gross_total: 7000, gst_amount: 0, advance_ota: 0, paid_cash: 7000, paid_upi: 0 },  // last FY, this calendar year
+    { check_in: "2025-12-30", nights: 1, gross_total: 5000, gst_amount: 0, advance_ota: 0, paid_cash: 5000, paid_upi: 0 },  // last calendar year
   ];
-  const [day, month, year, ytd] = reportPeriods("2026-10-16").map((p) => periodTotals(rows, p.start, p.end));
+  const periods = reportPeriods("2026-10-16");
+  assert.deepEqual(periods[3], { key: "ytd", start: "2026-01-01", end: "2026-10-16" });
+  assert.deepEqual(periodsSpan(periods), { start: "2026-01-01", end: "2027-03-31" });
+  const [day, month, year, ytd] = periods.map((p) => periodTotals(rows, p.start, p.end));
   assert.equal(day.bookings, 1);
   assert.equal(day.afterOta, 550);
   assert.equal(month.bookings, 2);
   assert.equal(month.nights, 5);
   assert.equal(month.gross, 24500);
-  assert.equal(month.cash, 4000);
-  assert.equal(year.bookings, 4);
+  assert.equal(year.bookings, 4);                 // FY Apr 2026 - Mar 2027
   assert.equal(year.gst, 1950);
-  assert.equal(ytd.bookings, 3);
-  assert.equal(ytd.gross, 27500);
-  assert.equal(ytd.afterOta, 27500 - 14450);
+  assert.equal(ytd.bookings, 4);                  // 1 Jan - 16 Oct 2026
+  assert.equal(ytd.gross, 10000 + 14500 + 3000 + 7000);
+  assert.equal(ytd.afterOta, 34500 - 14450);
+  // In February the year to date still starts on 1 January
+  assert.equal(reportPeriods("2027-02-10")[3].start, "2027-01-01");
 });
 
 test("per-day extras: rate × days", () => {

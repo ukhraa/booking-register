@@ -4,7 +4,7 @@ The booking register for Two Seas Residence's 6 apartments. It runs in any brows
 
 Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra bed, firewood, gas), OTA advance and cash/UPI payments. The app works out nights, GST, totals and the balance, and flags any booking whose payments don't add up.
 
-- **Summary** (opens first): today's occupancy, arrivals and departures, and totals for Today, This month, the financial year (April–March) and year to date. The totals cover bookings, room nights, gross total, GST, advance/OTA, balance after OTA, cash and UPI, counted by check-in date.
+- **Summary** (opens first): today's occupancy, arrivals and departures, and totals for Today, This month, the financial year (April–March) and year to date (1 January to today). The totals cover bookings, room nights, gross total, GST, advance/OTA, balance after OTA, cash and UPI, counted by check-in date.
 - **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
 - **New booking** (the + button) opens the booking form from any screen.
 - **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.

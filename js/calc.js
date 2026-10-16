@@ -149,8 +149,16 @@ export function reportPeriods(today) {
     { key: "day", start: today, end: today },
     { key: "month", start: mStart, end: mEnd },
     { key: "year", start: fy.start, end: fy.end, label: fy.label },
-    { key: "ytd", start: fy.start, end: today },
+    { key: "ytd", start: `${today.slice(0, 4)}-01-01`, end: today }, // calendar year: 1 Jan to today
   ];
+}
+
+/** Earliest and latest check-in dates any of the periods needs. */
+export function periodsSpan(periods) {
+  return {
+    start: periods.reduce((m, p) => (p.start < m ? p.start : m), periods[0].start),
+    end: periods.reduce((m, p) => (p.end > m ? p.end : m), periods[0].end),
+  };
 }
 
 export const TOTAL_FIELDS = ["bookings", "nights", "gross", "gst", "advance", "afterOta", "cash", "upi"];

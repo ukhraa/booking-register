@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from "./config.js";
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
-  extraAmount, extraRate, nightsBetween, financialYear, reportPeriods, periodTotals,
+  extraAmount, extraRate, nightsBetween, financialYear, reportPeriods, periodTotals, periodsSpan,
   addDays, availabilityGrid, occupancy,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
@@ -225,15 +225,15 @@ async function loadUpcoming() {
   if (!error) state.upcoming = data;
 }
 
-// Every booking in the current financial year, for the Totals table.
+// Every booking the Totals table needs: this financial year plus 1 Jan onwards (YTD).
 async function loadTotals() {
-  const fy = financialYear(todayISO());
+  const span = periodsSpan(reportPeriods(todayISO()));
   const cols = "check_in,nights,gross_total,gst_amount,advance_ota,paid_cash,paid_upi";
   const pageSize = 1000;
   let rows = [];
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await sb.from("bookings").select(cols)
-      .gte("check_in", fy.start).lte("check_in", fy.end).order("check_in").range(from, from + pageSize - 1);
+      .gte("check_in", span.start).lte("check_in", span.end).order("check_in").range(from, from + pageSize - 1);
     if (error) return;
     rows = rows.concat(data);
     if (data.length < pageSize) break;
