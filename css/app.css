@@ -187,15 +187,72 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .empty { padding: 36px 16px; text-align: center; color: var(--muted); margin: 0; }
 
 /* apartments */
-.houses { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
-.house { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.house h3 { font-weight: 500; font-size: 1.05rem; }
-.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; border-radius: 999px; padding: 2px 9px; width: fit-content; }
-.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.chip.in { background: var(--accent-soft); color: var(--accent); }
-.chip.free { background: var(--sunk); color: var(--muted); }
-.house ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-.house li b { color: var(--fg); font-weight: 500; }
+/* Apartment colours: tint (cell), ink (text) and edge (stripe). */
+.c-red    { --cbg: #f6d0ca; --cink: #74190f; --cedge: #c8443a; }
+.c-green  { --cbg: #cde7c3; --cink: #1d4c15; --cedge: #4f9a3e; }
+.c-orange { --cbg: #fbd6ae; --cink: #713700; --cedge: #e07b16; }
+.c-grey   { --cbg: #dadcdd; --cink: #2f3335; --cedge: #868c90; }
+.c-blue   { --cbg: #c8d9f8; --cink: #143a75; --cedge: #3d74d1; }
+.c-purple { --cbg: #e1d2f3; --cink: #452072; --cedge: #8a55c9; }
+.c-teal   { --cbg: #c4eae4; --cink: #0e4641; --cedge: #2c9c8f; }
+.c-pink   { --cbg: #f7cfe2; --cink: #741644; --cedge: #d24b8b; }
+.c-yellow { --cbg: #f5e9a8; --cink: #574500; --cedge: #c9a400; }
+@media (prefers-color-scheme: dark) {
+  .c-red    { --cbg: #4a211d; --cink: #f6c1ba; --cedge: #e0675c; }
+  .c-green  { --cbg: #213a1c; --cink: #c3e7b8; --cedge: #6cbf58; }
+  .c-orange { --cbg: #472b12; --cink: #f8cfa3; --cedge: #f0953c; }
+  .c-grey   { --cbg: #33383b; --cink: #d6d9db; --cedge: #9aa0a4; }
+  .c-blue   { --cbg: #1c2e4d; --cink: #bcd1f6; --cedge: #6b9be6; }
+  .c-purple { --cbg: #33244a; --cink: #dccbf3; --cedge: #a77de0; }
+  .c-teal   { --cbg: #183c38; --cink: #b5e6df; --cedge: #4dbfb1; }
+  .c-pink   { --cbg: #45202f; --cink: #f5c4da; --cedge: #e2739f; }
+  .c-yellow { --cbg: #3f3712; --cink: #f1e3a0; --cedge: #d8b92b; }
+}
+
+/* Availability grid: apartments across, days down */
+.monthnav { display: flex; gap: 6px; }
+.monthnav .btn { min-width: 40px; font-size: 15px; }
+.monthnav #calToday { font-size: 13px; }
+.cal-help { margin: -6px 0 0; }
+.calbox { overflow: auto; max-height: max(380px, calc(100dvh - 250px)); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.cal { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; min-width: calc(56px + var(--cols, 6) * 92px + 48px); font-size: 12px; }
+.cal col.date { width: 56px; }
+.cal th, .cal td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; height: 40px; text-align: left; vertical-align: top; text-transform: none; letter-spacing: 0; white-space: normal; }
+.cal thead th { position: sticky; top: 0; z-index: 3; height: auto; padding: 8px 8px 7px; font-family: var(--display); font-size: 13px; font-weight: 700; line-height: 1.2; vertical-align: bottom; background: var(--cbg, var(--sunk)); color: var(--cink, var(--fg)); border-bottom: 3px solid var(--cedge, var(--line)); }
+.cal thead th.corner { left: 0; z-index: 4; background: var(--sunk); color: var(--muted); font-family: var(--body); font-size: 11px; font-weight: 600; }
+.cal thead th.freecol, .cal tfoot td.freecol { background: var(--sunk); color: var(--muted); font-family: var(--body); font-size: 11px; font-weight: 600; text-align: center; }
+.cal tbody th { position: sticky; left: 0; z-index: 2; background: var(--surface); padding: 5px 6px; display: table-cell; }
+.cal tbody th b { display: block; font-family: var(--mono); font-size: 15px; font-weight: 500; line-height: 1.1; }
+.cal tbody th small { display: block; color: var(--muted); font-size: 11px; }
+.cal tr.wknd th { background: var(--sunk); }
+.cal tr.is-today th { background: var(--accent); color: var(--accent-ink); }
+.cal tr.is-today th small { color: inherit; opacity: .85; }
+.cal tr.is-today td { border-bottom-color: var(--accent); }
+
+.cal td.free { background: var(--surface); }
+.cal td.free button { display: block; width: 100%; height: 100%; min-height: 39px; border: 0; background: transparent; cursor: pointer; position: relative; }
+.cal td.free button:hover, .cal td.free button:focus-visible { background: var(--accent-soft); }
+.cal td.free button:hover::after { content: "+"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); font-size: 18px; }
+
+.cal td.booked { background: var(--cbg); color: var(--cink); border-left: 3px solid var(--cedge); border-bottom-color: var(--cbg); cursor: pointer; padding: 4px 6px; overflow: hidden; }
+.cal td.booked.start { border-top: 2px solid var(--cedge); }
+.cal td.booked.end { border-bottom: 1px solid var(--line); }
+.cal td.booked:hover { filter: brightness(.96); }
+.cal td.booked b, .cal td.clash b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal td.booked span, .cal td.clash span { display: block; font-size: 11px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal td.clash { background: repeating-linear-gradient(135deg, var(--bad-soft) 0 6px, var(--surface) 6px 12px); color: var(--bad); padding: 4px 6px; cursor: pointer; overflow: hidden; }
+
+.cal td.freecol { text-align: center; vertical-align: middle; font-family: var(--mono); color: var(--muted); }
+.cal td.freecol.full { color: var(--bad); font-weight: 600; }
+.cal tfoot th, .cal tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--sunk); padding: 6px 8px; height: auto; font-family: var(--mono); font-size: 12px; vertical-align: middle; border-bottom: 0; }
+.cal tfoot th { left: 0; z-index: 3; font-family: var(--body); font-size: 11px; font-weight: 600; color: var(--muted); }
+.cal tfoot td small { display: block; color: var(--muted); }
+
+/* Settings: apartment name + colour */
+.house-edit { display: grid; grid-template-columns: 1fr 130px; gap: 8px; }
+.colour-pick { display: flex; align-items: center; gap: 6px; }
+.colour-pick .swatch { flex: 0 0 22px; height: 22px; border-radius: 6px; background: var(--cbg); border: 2px solid var(--cedge); }
+.colour-pick select { flex: 1; min-width: 0; }
 
 /* settings */
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
@@ -301,3 +358,4 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
   .sheet { animation: slide .18s ease-out; }
   @keyframes slide { from { transform: translateX(24px); opacity: .6; } }
 }
+#houseInputs { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }

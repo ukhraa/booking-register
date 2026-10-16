@@ -101,17 +101,26 @@
 
       <!-- Apartments today -->
       <section id="tab-houses" class="stack" hidden>
-        <h2>Apartments <span class="muted small" id="todayLabel"></span></h2>
-        <div class="houses" id="houses"></div>
+        <div class="row-between">
+          <h2 id="calTitle">Availability</h2>
+          <div class="monthnav">
+            <button class="btn small" id="calPrev" type="button" aria-label="Previous month">‹</button>
+            <button class="btn small" id="calToday" type="button">This month</button>
+            <button class="btn small" id="calNext" type="button" aria-label="Next month">›</button>
+          </div>
+        </div>
+        <p class="muted small cal-help">Each coloured block is a stay. Tap one to open the booking, or tap a white square to book that apartment from that night.</p>
+        <div class="calbox" id="calBox"><table class="cal" id="calTable"></table></div>
+        <p class="muted small" id="calLoading" hidden>Loading…</p>
       </section>
 
       <!-- Settings (owner) -->
       <section id="tab-settings" class="stack" hidden>
-        <h2>Apartment names</h2>
+        <h2>Apartments</h2>
         <form id="housesForm" class="card stack">
           <div class="grid2" id="houseInputs"></div>
           <p class="err" id="housesErr" hidden></p>
-          <div><button class="btn primary" type="submit">Save names</button></div>
+          <div><button class="btn primary" type="submit">Save apartments</button></div>
         </form>
 
         <h2>Extra charges</h2>
@@ -177,8 +186,8 @@
         <span class="lbl-long">New booking</span><span class="lbl-short">New</span>
       </button>
       <button class="tab" data-tab="houses">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6"/></svg>
-        <span>Apartments</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4 M8 14h3 M13 14h3 M8 17h3"/></svg>
+        <span>Availability</span>
       </button>
       <button class="tab" data-tab="settings" id="settingsTab" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>

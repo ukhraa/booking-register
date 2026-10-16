@@ -7,11 +7,12 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Summary** (opens first): today's occupancy, arrivals and departures, and totals for Today, This month, the financial year (April–March) and year to date. The totals cover bookings, room nights, gross total, GST, advance/OTA, balance after OTA, cash and UPI, counted by check-in date.
 - **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
 - **New booking** (the + button) opens the booking form from any screen.
-- Summary, Register, New booking, Apartments and Settings are in a tab bar at the bottom of the screen.
+- **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.
+- Summary, Register, New booking, Availability and Settings are in a tab bar at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
 - **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
-- **Settings** (owner only): rename apartments, change the Extra Bed, Firewood and Gas charges, set the bill details (business name, address, GSTIN, bill number prefix), give or remove staff access
+- **Settings** (owner only): rename apartments and pick their colours, change the Extra Bed, Firewood and Gas charges, set the bill details (business name, address, GSTIN, bill number prefix), give or remove staff access
 - Changes show up live on every phone
 - Warns before double-booking an apartment
 
@@ -106,6 +107,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `003_guest_bill.sql` | Printable guest bill: business details and automatic bill numbers |
 | `004_bill_signature.sql` | Owner's signature on the guest bill |
 | `005_extra_days.sql` | Days for Extra Bed, Firewood and Gas (charged per day) |
+| `006_house_colours.sql` | A colour for each apartment on the Availability grid |
 
 ## Updating the app
 

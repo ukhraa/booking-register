@@ -173,6 +173,43 @@ export function periodTotals(bookings, start, end) {
   return t;
 }
 
+/** YYYY-MM-DD plus n days. */
+export function addDays(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/**
+ * Availability grid for one month: for each day, which booking (if any) has
+ * each apartment on that night. A stay occupies check-in up to, not including,
+ * check-out. More than one stay on a night is a double booking.
+ * Returns [{ date, cells: { [houseId]: { stays, first } } }] where `first` is
+ * true on the first night shown for that stay (its check-in, or the 1st of the month).
+ */
+export function availabilityGrid(ym, houseIds, stays) {
+  const [start, end] = monthRange(ym);
+  const days = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) days.push(d);
+  return days.map((date) => {
+    const cells = {};
+    for (const id of houseIds) {
+      const here = stays.filter((s) => s.house_id === id && s.check_in <= date && s.check_out > date);
+      cells[id] = { stays: here, first: here.some((s) => s.check_in === date || date === start) };
+    }
+    return { date, cells };
+  });
+}
+
+/** Booked nights per apartment in a grid, for the occupancy row. */
+export function occupancy(grid, houseIds) {
+  const out = {};
+  for (const id of houseIds) {
+    const nights = grid.filter((r) => r.cells[id].stays.length > 0).length;
+    out[id] = { nights, pct: grid.length ? Math.round((nights / grid.length) * 100) : 0 };
+  }
+  return out;
+}
+
 export const CSV_HEADERS = [
   "Serial No.", "House Name", "Booking Type", "Guest Name", "Check-in Date",
   "Check-out Date", "No. of Nights", "Tariff", "GST %", "GST Amount", "Total Tariff",

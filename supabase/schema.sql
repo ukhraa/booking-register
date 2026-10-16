@@ -58,6 +58,11 @@ create table if not exists public.houses (
   active     boolean not null default true
 );
 
+-- Colour on the Availability grid (migration 006)
+alter table public.houses
+  add column if not exists color text not null default ''
+  check (color in ('', 'red', 'green', 'blue', 'grey', 'orange', 'purple', 'teal', 'pink', 'yellow'));
+
 insert into public.houses (id, name, sort_order) values
   (1, 'Apartment 1', 1), (2, 'Apartment 2', 2), (3, 'Apartment 3', 3),
   (4, 'Apartment 4', 4), (5, 'Apartment 5', 5), (6, 'Apartment 6', 6)

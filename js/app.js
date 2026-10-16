@@ -3,6 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from ".
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
   extraAmount, extraRate, nightsBetween, financialYear, reportPeriods, periodTotals,
+  addDays, availabilityGrid, occupancy,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
 
@@ -52,6 +53,8 @@ const state = {
   bookings: [],      // bookings for the selected period
   upcoming: [],      // stays from today onwards, for the Apartments tab
   fyRows: [],        // this financial year's bookings, for the Totals table
+  calMonth: todayISO().slice(0, 7), // month shown on the Availability grid
+  calStays: [],      // bookings touching that month
   editing: null,     // booking being edited, or null for a new one
   gstTouched: false,
   overlapAck: false,
@@ -249,11 +252,11 @@ try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming(), loadTotals()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar()]);
   renderTotals();
   renderToday();
   renderRegister();
-  renderHouses();
+  renderCalendar();
   if (isOwner()) renderSettings();
 }
 
@@ -417,25 +420,112 @@ function renderToday() {
   ].join("");
 }
 
-function renderHouses() {
-  const today = todayISO();
-  const t = dayNumber(today);
-  $("todayLabel").textContent = `· ${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}`;
-  $("houses").innerHTML = state.houses.map((h) => {
-    const stays = state.upcoming.filter((b) => b.house_id === h.id);
-    const now = stays.find((b) => dayNumber(b.check_in) <= t && dayNumber(b.check_out) > t);
-    const next = stays.filter((b) => dayNumber(b.check_in) > t).slice(0, 3);
-    return `<div class="house">
-      <h3>${esc(h.name)}</h3>
-      <span class="chip ${now ? "in" : "free"}">${now ? "Occupied tonight" : "Free tonight"}</span>
-      <ul>
-        ${now ? `<li><b>${esc(now.guest_name)}</b> · checks out ${formatDate(now.check_out)}</li>` : ""}
-        ${next.map((b) => `<li>Next: <b>${esc(b.guest_name)}</b> · ${formatDate(b.check_in)} → ${formatDate(b.check_out)}</li>`).join("")}
-        ${!now && !next.length ? "<li>No upcoming bookings</li>" : ""}
-      </ul>
-    </div>`;
-  }).join("");
+// ════════════════════════════ Availability grid ════════════════════════════
+// Apartments across, days of the month down. Each apartment has a colour
+// (Settings); a booked night is shaded in it, a free night is white.
+const COLOURS = ["green", "red", "orange", "grey", "blue", "purple", "teal", "pink", "yellow"];
+const COLOUR_NAMES = { red: "Red", green: "Green", blue: "Blue", grey: "Grey", orange: "Orange", purple: "Purple", teal: "Teal", pink: "Pink", yellow: "Yellow" };
+const NAME_COLOURS = [["amazon", "green"], ["bhoomi", "red"], ["vismay", "orange"], ["himalaya", "grey"], ["nilgiri", "blue"], ["venus", "purple"]];
+function houseColour(h) {
+  if (h?.color && COLOURS.includes(h.color)) return h.color;
+  const n = String(h?.name || "").toLowerCase();
+  const byName = NAME_COLOURS.find(([k]) => n.includes(k));
+  return byName ? byName[1] : COLOURS[((h?.id || 1) - 1) % COLOURS.length];
 }
+
+async function loadCalendar() {
+  const [start, end] = monthRange(state.calMonth);
+  show("calLoading");
+  const { data, error } = await sb.from("bookings").select("*")
+    .lte("check_in", end).gt("check_out", start).order("check_in").limit(1000);
+  show("calLoading", false);
+  if (!error) state.calStays = data;
+}
+
+function renderCalendar() {
+  const ym = state.calMonth;
+  const houses = state.houses;
+  const ids = houses.map((h) => h.id);
+  const grid = availabilityGrid(ym, ids, state.calStays || []);
+  const occ = occupancy(grid, ids);
+  const today = todayISO();
+  const monthName = new Date(`${ym}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  $("calTitle").textContent = `Availability · ${monthName}`;
+  $("calToday").disabled = ym === today.slice(0, 7);
+
+  const head = `<thead><tr><th class="corner" scope="col">Date</th>${houses.map((h) =>
+    `<th scope="col" class="c-${houseColour(h)}">${esc(h.name)}</th>`).join("")}<th scope="col" class="freecol">Free</th></tr></thead>`;
+
+  const body = grid.map(({ date, cells }) => {
+    const d = new Date(`${date}T00:00:00`);
+    const dow = d.toLocaleDateString("en-IN", { weekday: "short" });
+    const weekend = d.getDay() === 0 || d.getDay() === 6;
+    let free = 0;
+    const tds = houses.map((h) => {
+      const c = cells[h.id];
+      const colour = houseColour(h);
+      if (!c.stays.length) {
+        free++;
+        return `<td class="free"><button type="button" data-free="${h.id}" data-date="${date}" aria-label="Free: ${esc(h.name)}, ${formatDate(date)}. Book from this night"></button></td>`;
+      }
+      if (c.stays.length > 1) {
+        return `<td class="clash" data-id="${c.stays[0].id}" title="Double booked"><b>Double booked</b><span>${c.stays.map((s) => esc(s.guest_name)).join(" · ")}</span></td>`;
+      }
+      const s = c.stays[0];
+      const last = s.check_out === addDays(date, 1);
+      const cls = ["booked", `c-${colour}`, c.first ? "start" : "", last ? "end" : ""].join(" ");
+      const label = c.first
+        ? `<b>${esc(s.guest_name)}</b><span>${esc(s.booking_type)} · ${s.nights}N</span>`
+        : "";
+      return `<td class="${cls}" data-id="${s.id}" title="${esc(s.guest_name)} · ${formatDate(s.check_in)} → ${formatDate(s.check_out)}">${label}</td>`;
+    }).join("");
+    return `<tr class="${date === today ? "is-today" : ""} ${weekend ? "wknd" : ""}"><th scope="row"><b>${Number(date.slice(8))}</b><small>${dow}</small></th>${tds}<td class="freecol ${free === 0 ? "full" : ""}">${free}</td></tr>`;
+  }).join("");
+
+  const foot = `<tfoot><tr><th scope="row">Booked</th>${houses.map((h) =>
+    `<td>${occ[h.id].nights}/${grid.length}<small>${occ[h.id].pct}%</small></td>`).join("")}<td class="freecol"></td></tr></tfoot>`;
+
+  $("calTable").style.setProperty("--cols", houses.length);
+  $("calTable").innerHTML = `<colgroup><col class="date">${houses.map(() => "<col>").join("")}<col style="width:48px"></colgroup>` + head + `<tbody>${body}</tbody>` + foot;
+}
+
+// Show today's row (with a couple of days above it) when the grid opens.
+function scrollCalToToday() {
+  requestAnimationFrame(() => {
+    const row = $("calTable").querySelector("tr.is-today");
+    const box = $("calBox");
+    if (!row) { box.scrollTop = 0; return; }
+    const head = $("calTable").tHead?.getBoundingClientRect().height || 0;
+    const rowH = row.cells[0]?.getBoundingClientRect().height || 40;
+    const offset = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    box.scrollTop = Math.max(0, offset - head - 2 * rowH);
+  });
+}
+
+$("calTable").addEventListener("click", (e) => {
+  const freeBtn = e.target.closest("[data-free]");
+  if (freeBtn) {
+    const date = freeBtn.dataset.date;
+    openSheet(null, { house_id: Number(freeBtn.dataset.free), check_in: date, check_out: addDays(date, 1) });
+    return;
+  }
+  const cell = e.target.closest("[data-id]");
+  if (cell) {
+    const b = (state.calStays || []).find((x) => x.id === cell.dataset.id);
+    if (b) openSheet(b);
+  }
+});
+const shiftMonth = async (n) => {
+  const [y, m] = state.calMonth.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  state.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  await loadCalendar();
+  renderCalendar();
+  scrollCalToToday();
+};
+$("calPrev").addEventListener("click", () => shiftMonth(-1));
+$("calNext").addEventListener("click", () => shiftMonth(1));
+$("calToday").addEventListener("click", () => { state.calMonth = todayISO().slice(0, 7); shiftMonth(0); });
 
 // ════════════════════════════ Tabs ════════════════════════════
 // New booking is also in the bar, but it opens the form instead of switching section.
@@ -443,6 +533,7 @@ document.querySelectorAll(".tab[data-tab]").forEach((btn) => btn.addEventListene
   document.querySelectorAll(".tab[data-tab]").forEach((b) => b.removeAttribute("aria-current"));
   btn.setAttribute("aria-current", "page");
   ["summary", "register", "houses", "settings"].forEach((t) => show(`tab-${t}`, t === btn.dataset.tab));
+  if (btn.dataset.tab === "houses") scrollCalToToday();
   window.scrollTo({ top: 0 });
 }));
 
@@ -559,7 +650,8 @@ async function suggestSerial() {
   return (data?.[0]?.serial ?? 0) + 1;
 }
 
-async function openSheet(b = null) {
+// prefill (new bookings only): { house_id, check_in, check_out } from the Availability grid
+async function openSheet(b = null, prefill = null) {
   state.editing = b;
   state.overlapAck = false;
   show("formErr", false);
@@ -575,9 +667,10 @@ async function openSheet(b = null) {
       $("booking_type").value = b.booking_type;
     }
   } else {
-    $("house_id").value = $("fHouse").value || state.houses[0]?.id || 1;
+    $("house_id").value = prefill?.house_id || $("fHouse").value || state.houses[0]?.id || 1;
     $("booking_type").value = BOOKING_TYPES[0];
-    $("check_in").value = todayISO();
+    $("check_in").value = prefill?.check_in || todayISO();
+    if (prefill?.check_out) $("check_out").value = prefill.check_out;
   }
   state.gstTouched = !!b;
   show("billBtn", !!b);
@@ -593,7 +686,7 @@ async function openSheet(b = null) {
 }
 
 function closeSheet() { show("sheet", false); state.editing = null; }
-$("newBtn").addEventListener("click", () => openSheet());
+$("newBtn").addEventListener("click", () => openSheet(null));
 document.querySelectorAll("[data-close]").forEach((el) => el.addEventListener("click", closeSheet));
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
@@ -724,8 +817,19 @@ $("deleteBtn").addEventListener("click", async () => {
 
 // ════════════════════════════ Settings (owner) ════════════════════════════
 async function renderSettings() {
-  $("houseInputs").innerHTML = state.houses.map((h) =>
-    `<div class="f"><label for="hn${h.id}">Apartment ${h.id}</label><input id="hn${h.id}" data-house="${h.id}" type="text" maxlength="40" value="${esc(h.name)}"></div>`).join("");
+  // Keep what the owner is typing if a live update arrives mid-edit.
+  if (!$("housesForm").contains(document.activeElement)) {
+    $("houseInputs").innerHTML = state.houses.map((h) => {
+      const col = houseColour(h);
+      return `<div class="house-edit">
+        <div class="f"><label for="hn${h.id}">Apartment ${h.id}</label><input id="hn${h.id}" data-house="${h.id}" type="text" maxlength="40" value="${esc(h.name)}"></div>
+        <div class="f"><label for="hc${h.id}">Colour</label>
+          <div class="colour-pick"><span class="swatch c-${col}" id="hs${h.id}"></span>
+          <select id="hc${h.id}" data-colour="${h.id}">${COLOURS.map((c) => `<option value="${c}" ${c === col ? "selected" : ""}>${COLOUR_NAMES[c]}</option>`).join("")}</select></div>
+        </div>
+      </div>`;
+    }).join("");
+  }
 
   // Don't overwrite a rate the owner is in the middle of typing.
   EXTRAS.forEach((k) => { if (document.activeElement !== $(`rate_${k}`)) $(`rate_${k}`).value = state.rates[k]; });
@@ -759,15 +863,35 @@ $("housesForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   show("housesErr", false);
   const inputs = [...document.querySelectorAll("[data-house]")];
+  let colourMissing = false;
   for (const inp of inputs) {
     const id = Number(inp.dataset.house);
+    const h = state.houses.find((x) => x.id === id);
     const name = inp.value.trim() || `Apartment ${id}`;
-    if (name === houseName(id)) continue;
-    const { error } = await sb.from("houses").update({ name }).eq("id", id);
-    if (error) { $("housesErr").textContent = "Couldn't save the names. Check your connection and try again."; show("housesErr"); return; }
+    const color = $(`hc${id}`).value;
+    const patch = {};
+    if (name !== h?.name) patch.name = name;
+    if (color !== (h?.color || "")) patch.color = color;
+    if (!Object.keys(patch).length) continue;
+    let { error } = await sb.from("houses").update(patch).eq("id", id);
+    if (error && /color/.test(error.message)) {
+      // Colour column not added yet: save the name anyway.
+      colourMissing = true;
+      delete patch.color;
+      error = Object.keys(patch).length ? (await sb.from("houses").update(patch).eq("id", id)).error : null;
+    }
+    if (error) { $("housesErr").textContent = "Couldn't save the apartments. Check your connection and try again."; show("housesErr"); return; }
   }
-  toast("Apartment names saved");
+  if (colourMissing) {
+    $("housesErr").textContent = "Names saved. To save colours, run supabase/migrations/006_house_colours.sql in Supabase (SQL Editor) once.";
+    show("housesErr");
+  } else toast("Apartments saved");
+  document.activeElement?.blur();
   reloadAll();
+});
+$("houseInputs").addEventListener("change", (e) => {
+  const sel = e.target.closest("[data-colour]");
+  if (sel) $(`hs${sel.dataset.colour}`).className = `swatch c-${sel.value}`;
 });
 
 $("ratesForm").addEventListener("submit", async (e) => {

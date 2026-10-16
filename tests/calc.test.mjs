@@ -3,7 +3,37 @@ import assert from "node:assert/strict";
 import {
   calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV, splitGst, amountInWords,
   extraAmount, extraRate, financialYear, reportPeriods, periodTotals,
+  addDays, availabilityGrid, occupancy,
 } from "../js/calc.js";
+
+test("addDays crosses months and years", () => {
+  assert.equal(addDays("2026-10-31", 1), "2026-11-01");
+  assert.equal(addDays("2026-12-31", 1), "2027-01-01");
+  assert.equal(addDays("2026-03-01", -1), "2026-02-28");
+});
+
+test("availability grid: nights, carry-over and double bookings", () => {
+  const stays = [
+    { id: "a", house_id: 1, check_in: "2026-09-29", check_out: "2026-10-03" }, // from last month
+    { id: "b", house_id: 1, check_in: "2026-10-03", check_out: "2026-10-05" }, // same-day turnover
+    { id: "c", house_id: 2, check_in: "2026-10-30", check_out: "2026-11-02" }, // runs into next month
+    { id: "d", house_id: 2, check_in: "2026-10-30", check_out: "2026-10-31" }, // clash with c
+  ];
+  const g = availabilityGrid("2026-10", [1, 2], stays);
+  assert.equal(g.length, 31);
+  const day = (n) => g[n - 1].cells;
+  assert.deepEqual(day(1)[1].stays.map((s) => s.id), ["a"]);
+  assert.equal(day(1)[1].first, true);           // carried in: label on the 1st
+  assert.equal(day(2)[1].first, false);
+  assert.deepEqual(day(3)[1].stays.map((s) => s.id), ["b"]); // a checked out, b checked in
+  assert.equal(day(3)[1].first, true);
+  assert.equal(day(5)[1].stays.length, 0);       // b checked out on the 5th
+  assert.equal(day(30)[2].stays.length, 2);      // double booking
+  assert.deepEqual(day(31)[2].stays.map((s) => s.id), ["c"]);
+  const occ = occupancy(g, [1, 2]);
+  assert.deepEqual(occ[1], { nights: 4, pct: 13 });
+  assert.deepEqual(occ[2], { nights: 2, pct: 6 });
+});
 
 test("financial year runs April to March", () => {
   assert.deepEqual(financialYear("2026-10-16"), { start: "2026-04-01", end: "2027-03-31", label: "FY 2026-27" });
