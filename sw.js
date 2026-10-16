@@ -1,7 +1,7 @@
 // Service worker: keeps the app shell on the phone so it opens instantly and offline.
 // Booking data always comes live from Supabase and is never cached here.
 // Bump VERSION whenever you change app files so phones pick up the update.
-const VERSION = "v8";
+const VERSION = "v9";
 const CACHE = `booking-register-${VERSION}`;
 const SHELL = [
   "./",
@@ -43,9 +43,11 @@ self.addEventListener("fetch", (event) => {
   if (url.hostname.endsWith(".supabase.co") || url.hostname.endsWith(".supabase.in")) return;
 
   // Own files: network first so updates arrive quickly, cache as fallback offline.
+  // "no-cache" makes the browser check GitHub for a newer file every time instead
+  // of reusing its own 10-minute copy, so a new version shows on the next open.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      fetch(req)
+      fetch(req.url, { cache: "no-cache", credentials: "same-origin" })
         .then((res) => {
           if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
           return res;

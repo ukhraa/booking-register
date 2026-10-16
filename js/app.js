@@ -12,7 +12,17 @@ const show = (el, on = true) => { (typeof el === "string" ? $(el) : el).hidden =
 
 // ── service worker (makes the app installable and load offline) ──
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  // updateViaCache "none": always check GitHub for a new sw.js.
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {}));
+  // When a new version takes over, reload once so it shows straight away.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return;
+    if (!document.getElementById("sheet")?.hidden) return; // don't lose a booking being typed
+    reloaded = true;
+    location.reload();
+  });
 }
 
 document.title = BUSINESS_NAME;
