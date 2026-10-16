@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from "./config.js";
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
-  extraAmount, extraRate, nightsBetween,
+  extraAmount, extraRate, nightsBetween, financialYear, reportPeriods, periodTotals,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
 
@@ -41,6 +41,7 @@ const state = {
   houses: [],
   bookings: [],      // bookings for the selected period
   upcoming: [],      // stays from today onwards, for the Apartments tab
+  fyRows: [],        // this financial year's bookings, for the Totals table
   editing: null,     // booking being edited, or null for a new one
   gstTouched: false,
   overlapAck: false,
@@ -189,10 +190,57 @@ async function loadUpcoming() {
   if (!error) state.upcoming = data;
 }
 
+// Every booking in the current financial year, for the Totals table.
+async function loadTotals() {
+  const fy = financialYear(todayISO());
+  const cols = "check_in,nights,gross_total,gst_amount,advance_ota,paid_cash,paid_upi";
+  const pageSize = 1000;
+  let rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb.from("bookings").select(cols)
+      .gte("check_in", fy.start).lte("check_in", fy.end).order("check_in").range(from, from + pageSize - 1);
+    if (error) return;
+    rows = rows.concat(data);
+    if (data.length < pageSize) break;
+  }
+  state.fyRows = rows;
+}
+
+function renderTotals() {
+  const today = todayISO();
+  const short = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const periods = reportPeriods(today);
+  const heads = {
+    day: ["Today", short(today)],
+    month: [new Date(`${today}T00:00:00`).toLocaleDateString("en-IN", { month: "long" }), today.slice(0, 4)],
+    year: [periods[2].label, "Apr – Mar"],
+    ytd: ["Year to date", `${short(periods[3].start)} – ${short(today)}`],
+  };
+  const totals = periods.map((p) => periodTotals(state.fyRows || [], p.start, p.end));
+  const ROWS = [
+    ["Bookings", "bookings", false], ["Room nights", "nights", false], ["Gross total", "gross", true],
+    ["GST", "gst", true], ["Advance / OTA", "advance", true], ["Balance after OTA", "afterOta", true],
+    ["Cash", "cash", true], ["UPI", "upi", true],
+  ];
+  $("totalsTable").innerHTML =
+    `<thead><tr><th scope="col"><span class="sr">Figure</span></th>${periods.map((p, i) => `<th scope="col" data-col="${i}">${esc(heads[p.key][0])}<small>${esc(heads[p.key][1])}</small></th>`).join("")}</tr></thead>` +
+    `<tbody>${ROWS.map(([label, k, money]) => `<tr class="${k === "gross" ? "key" : ""}"><th scope="row">${label}</th>${totals.map((t, i) => `<td data-col="${i}">${money ? formatINR(t[k]) : t[k]}</td>`).join("")}</tr>`).join("")}</tbody>`;
+}
+
+// Phone switcher: show one period column at a time (remembered on this device).
+function pickTotalsCol(i) {
+  $("totalsTable").className = `totals-table show-${i}`;
+  document.querySelectorAll("#totalsSeg button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.col === String(i))));
+  try { localStorage.setItem("totalsCol", String(i)); } catch {}
+}
+$("totalsSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-col]"); if (b) pickTotalsCol(b.dataset.col); });
+try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved || "")) pickTotalsCol(saved); } catch {}
+
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals()]);
+  renderTotals();
   renderRegister();
   renderHouses();
   if (isOwner()) renderSettings();
@@ -311,18 +359,6 @@ function renderRegister() {
   const empty = $("empty");
   show(empty, rows.length === 0 && $("loading").hidden);
   empty.textContent = state.bookings.length ? "No bookings match these filters." : "No bookings for this period yet. Tap New booking to add one.";
-
-  const s = { gross: 0, gst: 0, adv: 0, cash: 0, upi: 0, tips: 0, nights: 0, due: 0 };
-  rows.forEach((b) => {
-    s.gross += num(b.gross_total); s.gst += num(b.gst_amount); s.adv += num(b.advance_ota);
-    s.cash += num(b.paid_cash); s.upi += num(b.paid_upi); s.tips += num(b.tips); s.nights += b.nights;
-    if (!b.total_balanced) s.due++;
-  });
-  $("summary").innerHTML = [
-    ["Bookings", rows.length], ["Room nights", s.nights], ["Gross total", formatINR(s.gross)],
-    ["GST", formatINR(s.gst)], ["Advance / OTA", formatINR(s.adv)], ["Balance after OTA", formatINR(s.gross - s.adv)], ["Cash", formatINR(s.cash)],
-    ["UPI", formatINR(s.upi)], ["Tips", formatINR(s.tips)], ["Not balanced", s.due, s.due ? "bad" : ""],
-  ].map(([l, v, c = ""]) => `<div class="stat"><div class="lbl">${l}</div><div class="val ${c}">${v}</div></div>`).join("");
 }
 
 const openFromRow = (e) => {
@@ -372,6 +408,7 @@ document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click",
   document.querySelectorAll(".tab").forEach((b) => b.removeAttribute("aria-current"));
   btn.setAttribute("aria-current", "page");
   ["register", "houses", "settings"].forEach((t) => show(`tab-${t}`, t === btn.dataset.tab));
+  window.scrollTo({ top: 0 });
 }));
 
 // ════════════════════════════ Booking form ════════════════════════════

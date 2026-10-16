@@ -2,8 +2,37 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   calcBooking, nightsBetween, suggestGstPct, staysOverlap, monthRange, toCSV, splitGst, amountInWords,
-  extraAmount, extraRate,
+  extraAmount, extraRate, financialYear, reportPeriods, periodTotals,
 } from "../js/calc.js";
+
+test("financial year runs April to March", () => {
+  assert.deepEqual(financialYear("2026-10-16"), { start: "2026-04-01", end: "2027-03-31", label: "FY 2026-27" });
+  assert.deepEqual(financialYear("2027-03-31"), { start: "2026-04-01", end: "2027-03-31", label: "FY 2026-27" });
+  assert.equal(financialYear("2027-04-01").label, "FY 2027-28");
+  assert.equal(financialYear("2026-01-05").start, "2025-04-01");
+});
+
+test("totals for today, month, year and year to date", () => {
+  const rows = [
+    { check_in: "2026-10-16", nights: 2, gross_total: 10000, gst_amount: 450, advance_ota: 9450, paid_cash: 0, paid_upi: 550 },
+    { check_in: "2026-10-03", nights: 3, gross_total: 14500, gst_amount: 600, advance_ota: 5000, paid_cash: 4000, paid_upi: 5500 },
+    { check_in: "2026-06-10", nights: 1, gross_total: 3000, gst_amount: 0, advance_ota: 0, paid_cash: 3000, paid_upi: 0 },
+    { check_in: "2026-12-20", nights: 4, gross_total: 20000, gst_amount: 900, advance_ota: 20000, paid_cash: 0, paid_upi: 0 }, // future, same FY
+    { check_in: "2026-03-30", nights: 2, gross_total: 7000, gst_amount: 0, advance_ota: 0, paid_cash: 7000, paid_upi: 0 },  // last FY
+  ];
+  const [day, month, year, ytd] = reportPeriods("2026-10-16").map((p) => periodTotals(rows, p.start, p.end));
+  assert.equal(day.bookings, 1);
+  assert.equal(day.afterOta, 550);
+  assert.equal(month.bookings, 2);
+  assert.equal(month.nights, 5);
+  assert.equal(month.gross, 24500);
+  assert.equal(month.cash, 4000);
+  assert.equal(year.bookings, 4);
+  assert.equal(year.gst, 1950);
+  assert.equal(ytd.bookings, 3);
+  assert.equal(ytd.gross, 27500);
+  assert.equal(ytd.afterOta, 27500 - 14450);
+});
 
 test("per-day extras: rate × days", () => {
   assert.equal(extraAmount(500, 3), 1500);   // extra bed × 3 days

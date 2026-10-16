@@ -134,6 +134,45 @@ export function monthRange(ym) {
   return [`${ym}-01`, `${ym}-${String(last).padStart(2, "0")}`];
 }
 
+/** Indian financial year (1 April – 31 March) containing a YYYY-MM-DD date. */
+export function financialYear(iso) {
+  const [y, m] = iso.split("-").map(Number);
+  const start = m >= 4 ? y : y - 1;
+  return { start: `${start}-04-01`, end: `${start + 1}-03-31`, label: `FY ${start}-${String(start + 1).slice(2)}` };
+}
+
+/** The four reporting periods for a given day, by check-in date. */
+export function reportPeriods(today) {
+  const fy = financialYear(today);
+  const [mStart, mEnd] = monthRange(today.slice(0, 7));
+  return [
+    { key: "day", start: today, end: today },
+    { key: "month", start: mStart, end: mEnd },
+    { key: "year", start: fy.start, end: fy.end, label: fy.label },
+    { key: "ytd", start: fy.start, end: today },
+  ];
+}
+
+export const TOTAL_FIELDS = ["bookings", "nights", "gross", "gst", "advance", "afterOta", "cash", "upi"];
+
+/** Totals of saved bookings whose check-in falls in [start, end]. */
+export function periodTotals(bookings, start, end) {
+  const t = Object.fromEntries(TOTAL_FIELDS.map((k) => [k, 0]));
+  for (const b of bookings) {
+    if (!b.check_in || b.check_in < start || b.check_in > end) continue;
+    t.bookings += 1;
+    t.nights += num(b.nights);
+    t.gross += num(b.gross_total);
+    t.gst += num(b.gst_amount);
+    t.advance += num(b.advance_ota);
+    t.cash += num(b.paid_cash);
+    t.upi += num(b.paid_upi);
+  }
+  t.afterOta = t.gross - t.advance;
+  for (const k of TOTAL_FIELDS) t[k] = r2(t[k]);
+  return t;
+}
+
 export const CSV_HEADERS = [
   "Serial No.", "House Name", "Booking Type", "Guest Name", "Check-in Date",
   "Check-out Date", "No. of Nights", "Tariff", "GST %", "GST Amount", "Total Tariff",

@@ -46,17 +46,25 @@
   <div id="appView" hidden>
     <header class="topbar">
       <div class="brand"><img src="icons/icon.svg" alt="" width="30" height="30"><span class="biz-name">Two Seas Residence</span></div>
-      <nav class="tabs" aria-label="Sections">
-        <button class="tab" data-tab="register" aria-current="page">Register</button>
-        <button class="tab" data-tab="houses">Apartments</button>
-        <button class="tab" data-tab="settings" id="settingsTab" hidden>Settings</button>
-      </nav>
       <div class="who"><span id="whoName"></span><button class="btn ghost small" id="signOutBtn">Sign out</button></div>
     </header>
 
     <main class="wrap">
       <!-- Register -->
       <section id="tab-register" class="stack">
+        <section class="totals" aria-labelledby="totalsTitle">
+          <div class="row-between">
+            <h2 id="totalsTitle">Totals</h2>
+            <span class="muted small">All apartments · by check-in date</span>
+          </div>
+          <div class="seg" id="totalsSeg" role="tablist" aria-label="Period">
+            <button type="button" role="tab" data-col="0" aria-selected="true">Today</button>
+            <button type="button" role="tab" data-col="1" aria-selected="false">Month</button>
+            <button type="button" role="tab" data-col="2" aria-selected="false">FY</button>
+            <button type="button" role="tab" data-col="3" aria-selected="false">YTD</button>
+          </div>
+          <div class="totalsbox"><table class="totals-table show-0" id="totalsTable"></table></div>
+        </section>
         <div class="row-between">
           <h2 id="periodTitle">Bookings</h2>
           <div class="actions">
@@ -64,7 +72,6 @@
             <button class="btn primary" id="newBtn">New booking</button>
           </div>
         </div>
-        <section class="summary" id="summary" aria-label="Totals"></section>
         <div class="filters">
           <select id="fMonth" aria-label="Month"></select>
           <select id="fHouse" aria-label="Apartment"></select>
@@ -145,6 +152,21 @@
         </div>
       </section>
     </main>
+
+    <nav class="bottomnav" aria-label="Sections">
+      <button class="tab" data-tab="register" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h10l3 3v15H6z M9 9h7 M9 13h7 M9 17h4"/></svg>
+        <span>Register</span>
+      </button>
+      <button class="tab" data-tab="houses">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6"/></svg>
+        <span>Apartments</span>
+      </button>
+      <button class="tab" data-tab="settings" id="settingsTab" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
   </div>
 
   <!-- Booking sheet -->

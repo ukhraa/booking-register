@@ -76,20 +76,55 @@ code { font-family: var(--mono); font-size: .9em; background: var(--sunk); paddi
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
 }
-.tabs { display: flex; gap: 4px; order: 3; width: 100%; overflow-x: auto; }
-.tab { border: 0; background: transparent; padding: 8px 12px; border-radius: 999px; font-weight: 500; color: var(--muted); white-space: nowrap; }
-.tab[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
 .who { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; }
 .who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
-@media (min-width: 760px) { .tabs { order: 0; width: auto; } }
 
-/* summary */
-.summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-@media (min-width: 760px) { .summary { grid-template-columns: repeat(5, 1fr); } }
-.stat { background: var(--surface); padding: 11px 13px; min-width: 0; }
-.stat .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.stat .val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.15rem; margin-top: 2px; }
-.stat .val.bad { color: var(--bad); }
+/* bottom navigation (like a phone app, on every screen size) */
+:root { --nav-h: 62px; }
+#appView .wrap { padding-bottom: calc(var(--nav-h) + 32px + env(safe-area-inset-bottom, 0px)); }
+.bottomnav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  display: flex; justify-content: center; gap: 4px;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+.tab {
+  flex: 1 1 0; max-width: 160px; min-height: 50px; border: 0; background: transparent; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+}
+.tab svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tab:hover { color: var(--fg); }
+.tab[aria-current="page"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* totals by period: figures down the side, periods across */
+.totals { display: flex; flex-direction: column; gap: 8px; }
+.totalsbox { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.totals-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.totals-table th, .totals-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; text-transform: none; letter-spacing: 0; position: static; }
+.totals-table tbody tr:last-child th, .totals-table tbody tr:last-child td { border-bottom: 0; }
+.totals-table thead th { background: var(--sunk); text-align: right; vertical-align: bottom; font-size: 12px; font-weight: 600; color: var(--fg); }
+.totals-table thead th small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.totals-table thead th:first-child { text-align: left; }
+.totals-table tbody th { text-align: left; font-weight: 500; color: var(--muted); font-size: 13px; }
+.totals-table td { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.totals-table tr.key td { font-weight: 600; color: var(--fg); }
+.totals-table th:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.totals-table thead th:first-child { background: var(--sunk); }
+/* Phones: one period at a time, picked with the switcher */
+.seg { display: none; }
+@media (max-width: 599px) {
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; background: var(--sunk); border-radius: 10px; }
+  .seg button { border: 0; background: transparent; border-radius: 7px; padding: 7px 4px; font-weight: 500; color: var(--muted); min-height: 36px; }
+  .seg button[aria-selected="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+  .totals-table th:first-child, .totals-table td:first-child { position: static; }
+  .totals-table [data-col] { display: none; }
+  .totals-table.show-0 [data-col="0"], .totals-table.show-1 [data-col="1"],
+  .totals-table.show-2 [data-col="2"], .totals-table.show-3 [data-col="3"] { display: table-cell; }
+  .totals-table td { font-size: 15px; }
+}
 
 /* filters */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -179,7 +214,7 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 .extra-row { display: grid; grid-template-columns: 1.1fr .8fr 1.1fr; gap: 10px; min-width: 0; }
 .extra-row input:disabled { opacity: .45; }
 
-.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 999px; font-size: 14px; z-index: 30; }
+.toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + 16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 999px; font-size: 14px; z-index: 30; }
 
 /* guest bill: always printed on white paper, whatever the phone's theme */
 .bill-host { position: fixed; inset: 0; z-index: 25; background: var(--sunk); display: flex; flex-direction: column; }
