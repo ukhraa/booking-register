@@ -31,7 +31,14 @@ function delta(cur, prev, kind, upIsGood = true, prevLabel = "") {
  * ctx: { cur, prev, series, period, targets, houses, houseColour }
  */
 export function buildMetrics(ctx) {
-  const { cur, prev, series, period, targets, houses, houseColour } = ctx;
+  const { cur, prev, series, years = [], period, targets, houses, houseColour } = ctx;
+  // Figures the spreadsheet history doesn't have: only from bookings entered in the app.
+  const histUsed = cur.historyShare > 0;
+  const appNote = histUsed ? (cur.appSold || cur.stays ? "From bookings entered in the app only" : "Starts once bookings are entered in the app") : null;
+  const yearCols = (key, fmt, opts = {}) => years.length > 1 ? columns(years.map((y, i) => ({
+    label: y.partial ? `${y.year}*` : String(y.year), value: y[key], current: i === years.length - 1,
+    valueLabel: fmt(y[key]), tip: `${y.year}${y.partial ? " so far" : ""}: ${fmt(y[key])}`,
+  })), { ...opts, aria: "Year by year" }) : "";
   const has = cur.sold > 0;
   const curYm = series.at(-1)?.ym;
   const months = series.map((s) => ({ ...s, label: monthLabel(s.ym), current: s.ym === curYm }));
@@ -51,17 +58,18 @@ export function buildMetrics(ctx) {
   const alosStatus = cur.stays ? rate(Math.round(cur.alos * 10) / 10, targets.alos, 0.3) : "none";
   const gap = cur.weekendOcc - cur.weekdayOcc;
   const wkStatus = has ? (gap <= 15 ? "good" : gap <= 30 ? "warn" : "bad") : "none";
-  const houseAvg = cur.houses.length ? cur.houses.reduce((s, h) => s + h.occ, 0) / cur.houses.length : 0;
-  const weakest = [...cur.houses].sort((a, b) => a.occ - b.occ)[0];
-  const strongest = [...cur.houses].sort((a, b) => b.occ - a.occ)[0];
+  const openHouses = cur.houses.filter((h) => !h.closed);
+  const houseAvg = openHouses.length ? openHouses.reduce((s, h) => s + h.occ, 0) / openHouses.length : 0;
+  const weakest = [...openHouses].sort((a, b) => a.occ - b.occ)[0];
+  const strongest = [...openHouses].sort((a, b) => b.occ - a.occ)[0];
   const aptStatus = !has ? "none" : weakest && weakest.occ < houseAvg * 0.5 ? "bad" : weakest && weakest.occ < houseAvg * 0.7 ? "warn" : "good";
   const extrasStatus = !cur.stays ? "none" : prev.stays ? (cur.extrasPerStay >= prev.extrasPerStay ? "good" : cur.extrasPerStay >= prev.extrasPerStay * 0.85 ? "warn" : "bad") : "info";
   const trevStatus = !has ? "none" : prev.sold ? (cur.trevpar >= prev.trevpar ? "good" : cur.trevpar >= prev.trevpar * 0.9 ? "warn" : "bad") : "info";
   const unpaidStatus = cur.stays ? (cur.unpaid.length ? "bad" : "good") : "none";
 
-  const tipMonth = (m, txt) => `${monthLong(m.ym)}: ${txt}`;
+  const tipMonth = (m, txt) => `${monthLong(m.ym)}${m.partial ? " (so far)" : ""}: ${txt}`;
 
-  return [
+  const list = [
     {
       key: "occupancy", label: "Occupancy", value: has ? pct(cur.occupancy) : "–", status: occStatus,
       sub: `${cur.sold} of ${cur.available} apartment-nights sold`,
@@ -70,6 +78,8 @@ export function buildMetrics(ctx) {
       chart: () => columns(months.map((m) => ({ label: m.label, value: m.occupancy, current: m.current, tip: tipMonth(m, `${pct(m.occupancy)} (${m.sold} nights)`) })),
         { pct: true, target: targets.occupancy, targetLabel: `Target ${targets.occupancy}%`, aria: "Occupancy by month" }),
       table: () => monthTable(months, [["Occupancy", (m) => pct(m.occupancy)], ["Nights sold", (m) => m.sold]]),
+      yearChart: () => yearCols("occupancy", pct, { pct: true, target: targets.occupancy, targetLabel: `Target ${targets.occupancy}%` }),
+      yearTable: () => simpleTable(["Year", "Occupancy", "Nights sold", "Nights available"], years.map((y) => [`${y.year}${y.partial ? " (so far)" : ""}`, pct(y.occupancy), y.sold, y.available])),
       what: "The share of available apartment-nights that were sold.",
       why: "Shows how full you are. Empty nights earn nothing, but always being full usually means your rates are too low.",
       youVs: has ? `You: <b>${pct(cur.occupancy)}</b> · Target: <b>${targets.occupancy}%</b>` : "",
@@ -88,6 +98,8 @@ export function buildMetrics(ctx) {
       chart: () => line(months.map((m) => ({ label: m.label, value: m.adr, current: m.current, valueLabel: formatINR(Math.round(m.adr)), tip: tipMonth(m, m.sold ? formatINR(Math.round(m.adr)) : "no nights") })),
         { money: true, target: adrTarget, targetLabel: targets.adr > 0 ? "Target" : "12-month avg", aria: "ADR by month" }),
       table: () => monthTable(months, [["ADR", (m) => (m.sold ? formatINR(Math.round(m.adr)) : "–")], ["Room revenue", (m) => formatINR(Math.round(m.roomRev))]]),
+      yearChart: () => yearCols("adr", (v) => formatINR(Math.round(v)), { money: true }),
+      yearTable: () => simpleTable(["Year", "ADR", "Room revenue"], years.map((y) => [`${y.year}${y.partial ? " (so far)" : ""}`, y.sold ? formatINR(Math.round(y.adr)) : "–", formatINR(Math.round(y.roomRev))])),
       what: "The average room rate you earn per night sold, before GST.",
       why: "Shows what a night is really earning after discounts and OTA pricing. ADR rising while occupancy stays steady means your pricing is working.",
       youVs: has ? `You: <b>${formatINR(Math.round(cur.adr))}</b> · ${adrTargetLabel}` : "",
@@ -106,6 +118,8 @@ export function buildMetrics(ctx) {
       chart: () => columns(months.map((m) => ({ label: m.label, value: m.revpar, current: m.current, valueLabel: formatINR(Math.round(m.revpar)), tip: tipMonth(m, formatINR(Math.round(m.revpar))) })),
         { money: true, target: revparTarget, targetLabel: "Target", aria: "RevPAR by month" }),
       table: () => monthTable(months, [["RevPAR", (m) => formatINR(Math.round(m.revpar))], ["Occupancy", (m) => pct(m.occupancy)], ["ADR", (m) => (m.sold ? formatINR(Math.round(m.adr)) : "–")]]),
+      yearChart: () => yearCols("revpar", (v) => formatINR(Math.round(v)), { money: true }),
+      yearTable: () => simpleTable(["Year", "RevPAR", "Occupancy", "ADR"], years.map((y) => [`${y.year}${y.partial ? " (so far)" : ""}`, formatINR(Math.round(y.revpar)), pct(y.occupancy), y.sold ? formatINR(Math.round(y.adr)) : "–"])),
       what: "Room revenue divided by every apartment-night you could have sold (ADR × occupancy).",
       why: "The main hotel benchmark. It rewards filling apartments and charging well together, so it tells you whether a price change helped or hurt.",
       youVs: has ? `You: <b>${formatINR(Math.round(cur.revpar))}</b> · Target: <b>${formatINR(Math.round(revparTarget))}</b> <span class="muted">(${targets.occupancy}% × ${formatINR(Math.round(adrTarget))})</span>` : "",
@@ -135,9 +149,9 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "direct", label: "Direct bookings", value: has ? pct(cur.directShare) : "–", status: directStatus,
+      key: "direct", appOnly: true, label: "Direct bookings", value: has ? pct(cur.directShare) : "–", status: directStatus,
       sub: "Share of room revenue with no OTA commission",
-      delta: delta(cur.directShare, prev.sold ? prev.directShare : null, "pts", true, pl),
+      delta: delta(cur.directShare, prev.appSold ? prev.directShare : null, "pts", true, pl),
       spark: spark(months.map((m) => m.directShare), { target: targets.direct }),
       chart: () => hbars(cur.channels.map((c) => ({ label: c.type, value: c.share, display: `${pct(c.share)} · ${formatINR(Math.round(c.roomRev))}`, color: c.rate > 0 ? "--s2" : "--s1", tip: `${c.type}: ${pct(c.share)} of room revenue, ${c.nights} nights` })),
         { max: 100, legend: [{ label: "Direct (no commission)", color: "--s1" }, { label: "OTA", color: "--s2" }] }),
@@ -153,9 +167,9 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "commission", label: "OTA commission (estimated)", value: has ? formatINR(Math.round(cur.commission)) : "–", status: commStatus,
+      key: "commission", appOnly: true, label: "OTA commission (estimated)", value: has ? formatINR(Math.round(cur.commission)) : "–", status: commStatus,
       sub: has ? `${pct(cur.commissionPct)} of room revenue · you keep ${formatINR(Math.round(cur.netRoomRev))}` : "Using the rates in Settings",
-      delta: delta(cur.commissionPct, prev.sold ? prev.commissionPct : null, "pts", false, pl),
+      delta: delta(cur.commissionPct, prev.appSold ? prev.commissionPct : null, "pts", false, pl),
       spark: spark(months.map((m) => m.commissionPct)),
       chart: () => (ota.length ? hbars(ota.map((c) => ({ label: c.type, sub: `${c.rate}% commission`, value: c.commission, display: formatINR(Math.round(c.commission)), color: "--s2", tip: `${c.type}: about ${formatINR(Math.round(c.commission))} on ${formatINR(Math.round(c.roomRev))}` }))) : `<p class="muted">No OTA bookings in this period.</p>`),
       table: () => simpleTable(["Channel", "Rate", "Room revenue", "Commission"], ota.map((c) => [c.type, `${c.rate}%`, formatINR(Math.round(c.roomRev)), formatINR(Math.round(c.commission))])),
@@ -170,7 +184,7 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "alos", label: "Average length of stay", value: cur.stays ? `${cur.alos.toFixed(1)} nights` : "–", status: alosStatus,
+      key: "alos", appOnly: true, label: "Average length of stay", value: cur.stays ? `${cur.alos.toFixed(1)} nights` : "–", status: alosStatus,
       sub: `${cur.stays} booking${cur.stays === 1 ? "" : "s"} checked in`,
       delta: delta(cur.alos, prev.stays ? prev.alos : null, "num", true, pl),
       spark: spark(months.map((m) => m.alos), { target: targets.alos }),
@@ -191,10 +205,10 @@ export function buildMetrics(ctx) {
       key: "apartments", label: "Apartments compared", value: has && strongest ? `${pct(strongest.occ)} – ${pct(weakest.occ)}` : "–", status: aptStatus,
       sub: has && weakest ? `Least booked: ${weakest.name}` : "Occupancy by apartment",
       delta: "",
-      spark: `<div class="mini-bars">${cur.houses.map((h) => `<i class="c-${houseColour(h)}" style="height:${Math.max(6, h.occ)}%"></i>`).join("")}</div>`,
-      chart: () => hbars(cur.houses.map((h) => ({ label: h.name, sub: h.sold ? `ADR ${formatINR(Math.round(h.adr))}` : "no nights", value: h.occ, display: `${pct(h.occ)} · ${h.sold}N`, color: `--house-${houseColour(h)}`, tip: `${h.name}: ${pct(h.occ)} occupied, ${h.sold} nights, ADR ${formatINR(Math.round(h.adr))}, RevPAR ${formatINR(Math.round(h.revpar))}` })),
+      spark: `<div class="mini-bars">${cur.houses.map((h) => `<i class="c-${houseColour(h)}" style="height:${h.closed ? 0 : Math.max(6, h.occ)}%"></i>`).join("")}</div>`,
+      chart: () => hbars(cur.houses.map((h) => ({ label: h.name, sub: h.closed ? "closed" : h.sold ? `ADR ${formatINR(Math.round(h.adr))}` : "no nights", value: h.occ, display: h.closed ? "closed" : `${pct(h.occ)} · ${h.sold}N`, color: `--house-${houseColour(h)}`, tip: `${h.name}: ${pct(h.occ)} occupied, ${h.sold} nights, ADR ${formatINR(Math.round(h.adr))}, RevPAR ${formatINR(Math.round(h.revpar))}` })),
         { max: 100, target: targets.occupancy, targetLabel: `Target ${targets.occupancy}%` }),
-      table: () => simpleTable(["Apartment", "Nights", "Occupancy", "ADR", "RevPAR"], cur.houses.map((h) => [h.name, h.sold, pct(h.occ), h.sold ? formatINR(Math.round(h.adr)) : "–", formatINR(Math.round(h.revpar))])),
+      table: () => simpleTable(["Apartment", "Nights", "Occupancy", "ADR", "RevPAR"], cur.houses.map((h) => [h.name, h.closed ? "closed" : h.sold, h.closed ? "–" : pct(h.occ), h.sold ? formatINR(Math.round(h.adr)) : "–", h.closed ? "–" : formatINR(Math.round(h.revpar))])),
       what: "Occupancy and average rate for each apartment.",
       why: "Shows which apartments are under-booked or under-priced compared with the rest, so you know where to act.",
       youVs: has && weakest ? `Average: <b>${pct(houseAvg)}</b> · Least booked: <b>${esc(weakest.name)} ${pct(weakest.occ)}</b>` : "",
@@ -206,7 +220,7 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "weekend", label: "Weekends vs weekdays", value: has ? `${pct(cur.weekendOcc)} / ${pct(cur.weekdayOcc)}` : "–", status: wkStatus,
+      key: "weekend", appOnly: true, label: "Weekends vs weekdays", value: has ? `${pct(cur.weekendOcc)} / ${pct(cur.weekdayOcc)}` : "–", status: wkStatus,
       sub: "Fri–Sat nights / Sun–Thu nights",
       delta: "",
       spark: `<div class="mini-bars two"><i style="height:${Math.max(6, cur.weekendOcc)}%"></i><i class="b2" style="height:${Math.max(6, cur.weekdayOcc)}%"></i></div>`,
@@ -226,7 +240,7 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "extras", label: "Extras per stay", value: cur.stays ? formatINR(Math.round(cur.extrasPerStay)) : "–", status: extrasStatus,
+      key: "extras", appOnly: true, label: "Extras per stay", value: cur.stays ? formatINR(Math.round(cur.extrasPerStay)) : "–", status: extrasStatus,
       sub: "Food, extra bed, firewood and gas per booking",
       delta: delta(cur.extrasPerStay, prev.stays ? prev.extrasPerStay : null, "money", true, pl),
       spark: spark(months.map((m) => m.extrasPerStay)),
@@ -245,7 +259,7 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "unpaid", label: "Unpaid balances", value: cur.stays ? formatINR(Math.round(cur.unpaidTotal)) : "–", status: unpaidStatus,
+      key: "unpaid", appOnly: true, label: "Unpaid balances", value: cur.stays ? formatINR(Math.round(cur.unpaidTotal)) : "–", status: unpaidStatus,
       sub: cur.unpaid.length ? `${cur.unpaid.length} stay${cur.unpaid.length === 1 ? "" : "s"} checked out with money due` : "Stays checked out and fully paid",
       delta: "",
       spark: "",
@@ -261,6 +275,14 @@ export function buildMetrics(ctx) {
       },
     },
   ];
+  if (appNote) for (const m of list) if (m.appOnly) {
+    m.note = "The spreadsheet history only has nights and room revenue, so this uses bookings entered in the app.";
+    if (!(cur.appSold || cur.stays)) { m.value = "–"; m.status = "none"; m.delta = ""; m.sub = appNote; }
+    else m.sub = `${m.sub} · ${appNote.toLowerCase()}`;
+  }
+  const trev = list.find((m) => m.key === "trevpar");
+  if (histUsed && trev) trev.note = "Extras (food, extra beds, firewood, gas) aren't in the spreadsheet history, so for those months this equals RevPAR.";
+  return list;
 }
 
 function monthTable(months, cols) {
@@ -290,8 +312,10 @@ export function detailHTML(m, isOwner) {
     </div>
     <p class="pd-sub">${esc(m.sub)}</p>
     ${m.delta ? `<p class="pd-delta">${m.delta}</p>` : ""}
+    ${m.note ? `<p class="pd-note">${esc(m.note)}</p>` : ""}
     <div class="pd-chart">${m.chart()}</div>
     ${m.table()}
+    ${m.yearChart && m.yearChart() ? `<h3 class="pd-h">Year by year</h3><div class="pd-chart">${m.yearChart()}</div><p class="muted small">* this year so far.</p>${m.yearTable()}` : ""}
     <section class="pd-block"><h3>What it is</h3><p>${esc(m.what)}</p></section>
     <section class="pd-block"><h3>Why it matters</h3><p>${esc(m.why)}</p></section>
     ${m.youVs ? `<section class="pd-block"><h3>You vs where you should be</h3><p>${m.youVs}</p></section>` : ""}

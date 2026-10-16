@@ -37,20 +37,51 @@ const isWeekendNight = (iso) => {
  * All metrics for nights from `start` to `end` (inclusive, YYYY-MM-DD).
  * @param bookings  saved booking rows
  * @param houses    [{id, name}]
- * @param opts      { commission: settings map, today: YYYY-MM-DD }
+ * @param opts      { commission: settings map, today: YYYY-MM-DD,
+ *                    history: [{house_id, ym, nights_booked, nights_available, room_revenue}] }
+ *
+ * History (monthly figures from before the app) takes over whole months: for a
+ * month that has any history rows, nights, availability and room revenue come
+ * from history (an apartment with no row that month counts as not open), and
+ * app bookings on those nights are ignored. A period that cuts a history month
+ * part-way gets a pro-rata share of it. Channel, commission, weekend/weekday,
+ * extras and per-stay figures exist only for app bookings.
  */
 export function computeMetrics(bookings, houses, start, end, opts = {}) {
   const days = daysBetweenIncl(start, end);
   const H = houses.length || 1;
-  const available = H * days;
-  let weekendDays = 0;
-  for (let d = start; d <= end; d = addDays(d, 1)) if (isWeekendNight(d)) weekendDays++;
-  const weekdayDays = days - weekendDays;
+  const hist = opts.history || [];
+  const histMonths = new Set(hist.map((h) => h.ym));
+  const histRow = new Map(hist.map((h) => [`${h.house_id}|${h.ym}`, h]));
 
-  const perHouse = Object.fromEntries(houses.map((h) => [h.id, { sold: 0, roomRev: 0 }]));
+  const perHouse = Object.fromEntries(houses.map((h) => [h.id, { sold: 0, roomRev: 0, avail: 0 }]));
+  let available = 0, appAvailable = 0, histAvailable = 0;
+  let sold = 0, roomRev = 0, appRoomRev = 0, extrasRev = 0, weekendSold = 0, weekdaySold = 0, commission = 0;
+  let weekendDays = 0, weekdayDays = 0;
+
+  // Walk the period month by month.
+  for (let mStart = `${start.slice(0, 7)}-01`; mStart <= end; mStart = addDays(monthRange(mStart.slice(0, 7))[1], 1)) {
+    const ym = mStart.slice(0, 7);
+    const [ms, me] = monthRange(ym);
+    const from = start > ms ? start : ms, to = end < me ? end : me;
+    const nd = daysBetweenIncl(from, to);
+    if (histMonths.has(ym)) {
+      const frac = nd / daysBetweenIncl(ms, me);
+      for (const h of houses) {
+        const r = histRow.get(`${h.id}|${ym}`);
+        if (!r) continue; // not open that month
+        const a = num(r.nights_available) * frac, b = num(r.nights_booked) * frac, rv = num(r.room_revenue) * frac;
+        available += a; histAvailable += a; sold += b; roomRev += rv;
+        perHouse[h.id].avail += a; perHouse[h.id].sold += b; perHouse[h.id].roomRev += rv;
+      }
+    } else {
+      available += H * nd; appAvailable += H * nd;
+      for (const h of houses) perHouse[h.id].avail += nd;
+      for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekendNight(d)) weekendDays++; else weekdayDays++;
+    }
+  }
+
   const channels = {};
-  let sold = 0, roomRev = 0, extrasRev = 0, weekendSold = 0, weekdaySold = 0, commission = 0;
-
   for (const b of bookings) {
     const nights = Math.max(0, Math.round(num(b.nights)));
     if (!nights || !b.check_in) continue;
@@ -59,9 +90,10 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
     const rate = commissionFor(b.booking_type, opts.commission) / 100;
     for (let i = 0; i < nights; i++) {
       const night = addDays(b.check_in, i);
-      if (night < start || night > end) continue;
+      if (night < start || night > end || histMonths.has(night.slice(0, 7))) continue;
       sold++;
       roomRev += roomPerNight;
+      appRoomRev += roomPerNight;
       extrasRev += extrasPerNight;
       commission += roomPerNight * rate;
       if (isWeekendNight(night)) weekendSold++; else weekdaySold++;
@@ -71,7 +103,7 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
     }
   }
 
-  // Per stay (bookings that check in during the period)
+  // Per stay (app bookings that check in during the period)
   const stays = bookings.filter((b) => b.check_in >= start && b.check_in <= end && num(b.nights) > 0);
   const stayNights = stays.reduce((s, b) => s + num(b.nights), 0);
   const extras = { food: 0, bed: 0, firewood: 0, gas: 0 };
@@ -90,23 +122,30 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
 
   const houseRows = houses.map((h) => {
     const p = perHouse[h.id];
-    return { id: h.id, name: h.name, sold: p.sold, occ: days ? (p.sold / days) * 100 : 0, adr: p.sold ? p.roomRev / p.sold : 0, revpar: days ? p.roomRev / days : 0 };
+    return {
+      id: h.id, name: h.name, sold: Math.round(p.sold), avail: Math.round(p.avail), closed: p.avail === 0,
+      occ: p.avail ? (p.sold / p.avail) * 100 : 0, adr: p.sold ? p.roomRev / p.sold : 0, revpar: p.avail ? p.roomRev / p.avail : 0,
+    };
   });
 
   return {
-    start, end, days, available, sold,
+    start, end, days, available: Math.round(available), sold: Math.round(sold),
+    historyShare: available ? histAvailable / available : 0, // 0 = all from app bookings, 1 = all from history
+    appAvailable,
     occupancy: available ? (sold / available) * 100 : 0,
     roomRev: r2(roomRev), extrasRev: r2(extrasRev), totalRev: r2(roomRev + extrasRev),
     adr: sold ? r2(roomRev / sold) : 0,
     revpar: available ? r2(roomRev / available) : 0,
     trevpar: available ? r2((roomRev + extrasRev) / available) : 0,
     extrasShare: roomRev + extrasRev ? (extrasRev / (roomRev + extrasRev)) * 100 : 0,
-    channels: Object.entries(channels).map(([type, c]) => ({ type, ...c, roomRev: r2(c.roomRev), commission: r2(c.commission), share: roomRev ? (c.roomRev / roomRev) * 100 : 0 }))
+    // Channel figures only exist for app bookings, so their shares are of app room revenue.
+    appSold: weekendSold + weekdaySold,
+    channels: Object.entries(channels).map(([type, c]) => ({ type, ...c, roomRev: r2(c.roomRev), commission: r2(c.commission), share: appRoomRev ? (c.roomRev / appRoomRev) * 100 : 0 }))
       .sort((a, b) => b.roomRev - a.roomRev),
-    directShare: roomRev ? (directRev / roomRev) * 100 : 0,
+    directShare: appRoomRev ? (directRev / appRoomRev) * 100 : 0,
     commission: r2(commission),
-    commissionPct: roomRev ? (commission / roomRev) * 100 : 0,
-    netRoomRev: r2(roomRev - commission),
+    commissionPct: appRoomRev ? (commission / appRoomRev) * 100 : 0,
+    netRoomRev: r2(appRoomRev - commission),
     stays: stays.length,
     alos: stays.length ? stayNights / stays.length : 0,
     extrasPerStay: stays.length ? r2((extras.food + extras.bed + extras.firewood + extras.gas) / n) : 0,
@@ -116,6 +155,16 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
     weekdayOcc: weekdayDays ? (weekdaySold / (H * weekdayDays)) * 100 : 0,
     unpaid, unpaidTotal: r2(unpaid.reduce((s, x) => s + x.due, 0)),
   };
+}
+
+/** One row per calendar year: occupancy, ADR, RevPAR. The current year runs to `today`. */
+export function yearlySeries(bookings, houses, firstYear, today, opts = {}) {
+  const out = [];
+  for (let y = firstYear; y <= Number(today.slice(0, 4)); y++) {
+    const end = y === Number(today.slice(0, 4)) ? today : `${y}-12-31`;
+    out.push({ year: y, partial: end !== `${y}-12-31`, ...computeMetrics(bookings, houses, `${y}-01-01`, end, opts) });
+  }
+  return out;
 }
 
 /** The 12 calendar months ending with `ym` (YYYY-MM), oldest first. */
@@ -131,44 +180,46 @@ export function lastMonths(ym, count = 12) {
 
 export function monthlySeries(bookings, houses, endYm, opts = {}, count = 12) {
   return lastMonths(endYm, count).map((ym) => {
-    const [s, e] = monthRange(ym);
-    return { ym, ...computeMetrics(bookings, houses, s, e, opts) };
+    const [s, e0] = monthRange(ym);
+    const e = opts.today && e0 > opts.today ? opts.today : e0; // the current month counts up to today
+    return { ym, partial: e !== e0, ...computeMetrics(bookings, houses, s, e, opts) };
   });
 }
 
-/** Period choices for the Performance tab, with the period each is compared with. */
+/**
+ * Period choices for the Performance tab, with the period each is compared with.
+ * Periods never run past today ("so far"), and are compared with the same span
+ * of days in the comparison period, so a half-finished month or year is fair.
+ */
 export function perfPeriod(key, today) {
   const ym = today.slice(0, 7);
-  const [y, m] = ym.split("-").map(Number);
-  const monthStart = (yy, mm) => { const d = new Date(Date.UTC(yy, mm - 1, 1)); return d.toISOString().slice(0, 10); };
-  const monthEnd = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
-  const lastYear = (iso) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`.replace("-02-29", "-02-28");
+  const [y, m, d] = today.split("-").map(Number);
+  const iso = (yy, mm, dd) => new Date(Date.UTC(yy, mm - 1, dd)).toISOString().slice(0, 10);
+  const monthStart = (yy, mm) => iso(yy, mm, 1);
+  const monthEnd = (yy, mm) => iso(yy, mm + 1, 0);
+  // Same day of another month, clamped to that month's length (31 Mar → 28 Feb)
+  const sameDay = (yy, mm) => { const e = monthEnd(yy, mm); return Number(e.slice(8)) < d ? e : iso(yy, mm, d); };
+  const lastYear = (s) => { const [a, b, c] = s.split("-").map(Number); const e = iso(a - 1, b + 1, 0); return Number(e.slice(8)) < c ? e : iso(a - 1, b, c); };
   const fyStartYear = m >= 4 ? y : y - 1;
   switch (key) {
-    case "last_month": {
-      const s = monthStart(y, m - 1), e = monthEnd(y, m - 1);
-      return { key, label: "Last month", start: s, end: e, prev: { start: monthStart(y, m - 2), end: monthEnd(y, m - 2), label: "the month before" } };
-    }
-    case "last_3": {
-      const s = monthStart(y, m - 3), e = monthEnd(y, m - 1);
-      return { key, label: "Last 3 months", start: s, end: e, prev: { start: monthStart(y, m - 6), end: monthEnd(y, m - 4), label: "the 3 months before" } };
-    }
+    case "last_month":
+      return { key, label: "Last month", start: monthStart(y, m - 1), end: monthEnd(y, m - 1), prev: { start: monthStart(y, m - 2), end: monthEnd(y, m - 2), label: "the month before" } };
+    case "last_3":
+      return { key, label: "Last 3 months", start: monthStart(y, m - 3), end: monthEnd(y, m - 1), prev: { start: monthStart(y, m - 6), end: monthEnd(y, m - 4), label: "the 3 months before" } };
     case "ytd": {
       const s = `${y}-01-01`;
       return { key, label: "Year to date", start: s, end: today, prev: { start: lastYear(s), end: lastYear(today), label: "same dates last year" } };
     }
     case "fy": {
-      const s = `${fyStartYear}-04-01`, e = `${fyStartYear + 1}-03-31`;
-      return { key, label: `FY ${fyStartYear}-${String(fyStartYear + 1).slice(2)}`, start: s, end: e, prev: { start: lastYear(s), end: lastYear(e), label: "last FY" } };
+      const s = `${fyStartYear}-04-01`;
+      return { key, label: `FY ${fyStartYear}-${String(fyStartYear + 1).slice(2)} so far`, start: s, end: today, prev: { start: lastYear(s), end: lastYear(today), label: "same dates last FY" } };
     }
     case "last_12": {
-      const s = monthStart(y, m - 11), e = monthEnd(y, m);
-      return { key, label: "Last 12 months", start: s, end: e, prev: { start: lastYear(s), end: lastYear(e), label: "the 12 months before" } };
+      const s = monthStart(y, m - 11);
+      return { key, label: "Last 12 months", start: s, end: today, prev: { start: lastYear(s), end: lastYear(today), label: "the 12 months before" } };
     }
-    default: {
-      const s = monthStart(y, m), e = monthEnd(y, m);
-      return { key: "month", label: "This month", start: s, end: e, prev: { start: monthStart(y, m - 1), end: monthEnd(y, m - 1), label: "last month" } };
-    }
+    default:
+      return { key: "month", label: "This month so far", start: monthStart(y, m), end: today, prev: { start: monthStart(y, m - 1), end: sameDay(y, m - 1), label: "same days last month" } };
   }
 }
 

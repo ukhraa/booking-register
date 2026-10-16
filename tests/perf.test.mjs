@@ -51,14 +51,22 @@ test("monthly series and period choices", () => {
   assert.equal(s[11].ym, "2026-10");
   assert.equal(s[11].available, 62);
   const t = "2026-10-16";
-  assert.deepEqual([perfPeriod("month", t).start, perfPeriod("month", t).end], ["2026-10-01", "2026-10-31"]);
-  assert.deepEqual([perfPeriod("month", t).prev.start, perfPeriod("month", t).prev.end], ["2026-09-01", "2026-09-30"]);
-  assert.deepEqual([perfPeriod("last_3", t).start, perfPeriod("last_3", t).end], ["2026-07-01", "2026-09-30"]);
-  assert.deepEqual([perfPeriod("ytd", t).start, perfPeriod("ytd", t).prev.end], ["2026-01-01", "2025-10-16"]);
-  assert.deepEqual([perfPeriod("fy", t).start, perfPeriod("fy", t).end], ["2026-04-01", "2027-03-31"]);
-  assert.equal(perfPeriod("fy", "2027-02-01").start, "2026-04-01");
-  assert.deepEqual([perfPeriod("last_12", t).start, perfPeriod("last_12", t).end], ["2025-11-01", "2026-10-31"]);
-  assert.equal(perfPeriod("month", "2026-01-10").prev.start, "2025-12-01");
+  const P = (k, d = t) => perfPeriod(k, d);
+  assert.deepEqual([P("month").start, P("month").end], ["2026-10-01", "2026-10-16"]);          // so far
+  assert.deepEqual([P("month").prev.start, P("month").prev.end], ["2026-09-01", "2026-09-16"]); // same days
+  assert.equal(P("month", "2026-03-31").prev.end, "2026-02-28");
+  assert.deepEqual([P("last_month").start, P("last_month").end], ["2026-09-01", "2026-09-30"]);
+  assert.deepEqual([P("last_3").start, P("last_3").end], ["2026-07-01", "2026-09-30"]);
+  assert.deepEqual([P("ytd").start, P("ytd").prev.end], ["2026-01-01", "2025-10-16"]);
+  assert.deepEqual([P("fy").start, P("fy").end, P("fy").prev.start, P("fy").prev.end], ["2026-04-01", "2026-10-16", "2025-04-01", "2025-10-16"]);
+  assert.equal(P("fy", "2027-02-01").start, "2026-04-01");
+  assert.deepEqual([P("last_12").start, P("last_12").end], ["2025-11-01", "2026-10-16"]);
+  assert.equal(P("ytd", "2028-02-29").prev.end, "2027-02-28");
+  assert.equal(P("month", "2026-01-10").prev.start, "2025-12-01");
+  // The current month in a trend counts only up to today
+  const cur = monthlySeries([], houses, "2026-10", { today: t }).at(-1);
+  assert.equal(cur.available, 32);  // 2 apartments × 16 days
+  assert.equal(cur.partial, true);
 });
 
 test("status against a target", () => {
@@ -75,4 +83,53 @@ test("commission rates: defaults, owner overrides, unknown types", () => {
   assert.equal(commissionFor("Booking.com", { commission_booking_com: 15 }), 15);
   assert.equal(commissionFor("Direct"), 0);
   assert.equal(commissionFor("Some new OTA"), 15);
+});
+
+test("monthly history fills months before the app, app bookings take over after", async () => {
+  const { computeMetrics, yearlySeries } = await import("../js/perf.js");
+  const houses = [{ id: 1, name: "Bhoomi" }, { id: 6, name: "Venus" }];
+  const history = [
+    // January 2025 from the spreadsheet
+    { house_id: 1, ym: "2025-01", nights_booked: 23, nights_available: 31, room_revenue: 150000 },
+    { house_id: 6, ym: "2025-01", nights_booked: 18, nights_available: 31, room_revenue: 60000 },
+    // June 2026: Venus closed (0 available)
+    { house_id: 1, ym: "2026-06", nights_booked: 18, nights_available: 30, room_revenue: 150000 },
+    { house_id: 6, ym: "2026-06", nights_booked: 0, nights_available: 0, room_revenue: 0 },
+    // February 2023: Venus not open yet (no row)
+    { house_id: 1, ym: "2023-02", nights_booked: 13, nights_available: 21, room_revenue: 70000 },
+  ];
+  const bookings = [
+    // An app booking inside a history month is ignored (history is the record)
+    { house_id: 1, booking_type: "Direct", check_in: "2025-01-10", check_out: "2025-01-12", nights: 2, tariff: 99999 },
+    // An app booking after history: counted normally
+    { house_id: 6, booking_type: "Airbnb", check_in: "2026-10-10", check_out: "2026-10-12", nights: 2, tariff: 8000 },
+  ];
+  const jan = computeMetrics(bookings, houses, "2025-01-01", "2025-01-31", { history });
+  assert.equal(jan.available, 62);
+  assert.equal(jan.sold, 41);
+  assert.equal(jan.roomRev, 210000);
+  assert.equal(Math.round(jan.adr), Math.round(210000 / 41));
+  assert.equal(jan.historyShare, 1);
+  assert.equal(jan.channels.length, 0);   // no channel data in history
+
+  const jun = computeMetrics(bookings, houses, "2026-06-01", "2026-06-30", { history });
+  assert.equal(jun.available, 30);        // Venus closed: not counted as empty
+  assert.equal(jun.occupancy, 60);
+  assert.equal(jun.houses.find((h) => h.id === 6).closed, true);
+
+  const feb23 = computeMetrics(bookings, houses, "2023-02-01", "2023-02-28", { history });
+  assert.equal(feb23.available, 21);      // Venus had no row: not open
+
+  const oct = computeMetrics(bookings, houses, "2026-10-01", "2026-10-31", { history });
+  assert.equal(oct.available, 62);        // after history: apartments × days
+  assert.equal(oct.sold, 2);
+  assert.equal(oct.historyShare, 0);
+
+  // Half of January 2025 gets half of the month's history
+  const half = computeMetrics([], houses, "2025-01-01", "2025-01-16", { history });
+  assert.equal(Math.round(half.available), 32);
+  assert.equal(Math.round(half.roomRev), Math.round(210000 * 16 / 31));
+
+  const years = yearlySeries(bookings, houses, 2025, "2026-10-16", { history });
+  assert.deepEqual(years.map((y) => [y.year, y.partial]), [[2025, false], [2026, true]]);
 });

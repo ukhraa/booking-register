@@ -8,7 +8,7 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
 - **New booking** (the + button) opens the booking form from any screen.
 - **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.
-- **Performance**: hotel performance metrics for a period you choose (this month, last month, last 3 months, year to date, this financial year, last 12 months), each compared with the period before. The metrics are occupancy, average daily rate (ADR), RevPAR, TRevPAR, direct-booking share, estimated OTA commission, average length of stay, a comparison of apartments, weekends vs weekdays, extras per stay and unpaid balances. Each box shows the figure, a trend line and whether you're on target. Tap a box for a chart, what the metric means, why it matters, how you compare with your target, and what to do. Targets and OTA commission rates are set in Settings.
+- **Performance**: hotel performance metrics for a period you choose (this month, last month, last 3 months, year to date, this financial year, last 12 months), each compared with the period before. The metrics are occupancy, average daily rate (ADR), RevPAR, TRevPAR, direct-booking share, estimated OTA commission, average length of stay, a comparison of apartments, weekends vs weekdays, extras per stay and unpaid balances. Each box shows the figure, a trend line and whether you're on target. Tap a box for a chart, what the metric means, why it matters, how you compare with your target, and what to do. Targets and OTA commission rates are set in Settings. Months covered by the imported spreadsheet history (up to September 2026) use those figures; later months use bookings in the app. Occupancy, ADR and RevPAR also have a year-by-year chart.
 - **Settings** is the gear icon at the top (owners only).
 - **Light and Dark mode**: Light (white and blue) is the default. Tap the moon at the top to switch to Dark (black and blue), and the sun to switch back. Each phone or computer remembers its own choice.
 - Summary, Register, New booking, Availability and Performance are in a tab bar at the bottom of the screen.
@@ -111,6 +111,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `004_bill_signature.sql` | Owner's signature on the guest bill |
 | `005_extra_days.sql` | Days for Extra Bed, Firewood and Gas (charged per day) |
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
+| `007_monthly_history.sql` | Monthly nights and room revenue per apartment, January 2023 to September 2026 (from Occ_x_Rev_data.xlsx), for the Performance tab |
 
 ## Updating the app
 

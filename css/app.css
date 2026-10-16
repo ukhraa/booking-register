@@ -514,3 +514,5 @@ details.numbers th { background: var(--sunk); font-size: 12px; color: var(--mute
 details.numbers td.r, details.numbers th.r { text-align: right; font-family: var(--mono); }
 
 .chart-tip { position: fixed; z-index: 40; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; font-weight: 500; padding: 6px 9px; border-radius: 6px; max-width: 260px; box-shadow: 0 4px 12px rgb(0 0 0 / .2); }
+.pd-h { font-family: var(--body); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 -6px; }
+.pd-note { margin: 0; font-size: 13px; color: var(--muted); background: var(--sunk); border-radius: var(--r); padding: 8px 10px; }

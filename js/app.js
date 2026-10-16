@@ -6,7 +6,7 @@ import {
   addDays, availabilityGrid, occupancy,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
-import { computeMetrics, monthlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor } from "./perf.js";
+import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor } from "./perf.js";
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 
 const $ = (id) => document.getElementById(id);
@@ -80,6 +80,7 @@ const state = {
   calMonth: todayISO().slice(0, 7), // month shown on the Availability grid
   calStays: [],      // bookings touching that month
   perfRows: [],      // bookings for the Performance tab (about two years)
+  history: [],       // monthly figures from before the app (monthly_history)
   settingsMap: {},   // every row of the settings table, key → number
   targets: { ...DEFAULT_TARGETS },
   perfMetrics: [],
@@ -569,6 +570,7 @@ $("calNext").addEventListener("click", () => shiftMonth(1));
 $("calToday").addEventListener("click", () => { state.calMonth = todayISO().slice(0, 7); shiftMonth(0); });
 
 // ════════════════════════════ Performance ════════════════════════════
+const monthName = (ym) => (ym ? new Date(`${ym}-01T00:00:00`).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "");
 // About two years of bookings: enough for "last FY" and "same dates last year".
 async function loadPerf() {
   const today = todayISO();
@@ -585,19 +587,24 @@ async function loadPerf() {
     if (data.length < pageSize) break;
   }
   state.perfRows = rows;
+  // Monthly figures from before the app (table added by migration 007; missing = none).
+  const { data: hist, error: hErr } = await sb.from("monthly_history").select("house_id,ym,nights_booked,nights_available,room_revenue").limit(5000);
+  state.history = hErr ? [] : hist;
 }
 
 function renderPerf() {
   const today = todayISO();
   const period = perfPeriod($("perfPeriod").value, today);
-  const opts = { commission: state.settingsMap, today };
+  const opts = { commission: state.settingsMap, today, history: state.history };
   const cur = computeMetrics(state.perfRows, state.houses, period.start, period.end, opts);
   const prev = computeMetrics(state.perfRows, state.houses, period.prev.start, period.prev.end, opts);
   // Trend charts: the 12 months ending with the period (FY shows its own April–March).
-  const endYm = period.key === "fy" ? period.end.slice(0, 7) : (period.end > today ? today : period.end).slice(0, 7);
+  const endYm = (period.end > today ? today : period.end).slice(0, 7);
   const series = monthlySeries(state.perfRows, state.houses, endYm, opts);
-  state.perfMetrics = buildMetrics({ cur, prev, series, period, targets: state.targets, houses: state.houses, houseColour });
-  $("perfNote").textContent = `${formatDate(period.start)} to ${formatDate(period.end)} · compared with ${period.prev.label}${period.end > today ? " · includes bookings already made for later dates" : ""}`;
+  const firstYear = Math.min(Number(today.slice(0, 4)), ...state.history.map((h) => Number(h.ym.slice(0, 4))), ...state.perfRows.slice(0, 1).map((b) => Number(b.check_in.slice(0, 4))));
+  const years = yearlySeries(state.perfRows, state.houses, firstYear, today, opts);
+  state.perfMetrics = buildMetrics({ cur, prev, series, years, period, targets: state.targets, houses: state.houses, houseColour });
+  $("perfNote").textContent = `${formatDate(period.start)} to ${formatDate(period.end)} · compared with ${period.prev.label}${state.history.length ? " · months up to " + monthName(state.history.reduce((m, h) => (h.ym > m ? h.ym : m), "")) + " use your spreadsheet history" : ""}`;
   $("perfCards").innerHTML = cardsHTML(state.perfMetrics);
   if (!$("perfSheet").hidden && state.perfOpen) openPerf(state.perfOpen); // keep an open detail up to date
 }

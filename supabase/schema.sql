@@ -313,6 +313,27 @@ revoke execute on function public.assign_bill_no(uuid) from public, anon;
 grant execute on function public.assign_bill_no(uuid) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────
+-- Monthly history from before the app (migration 007 also loads the data).
+-- The Performance tab uses it for any month listed, app bookings otherwise.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.monthly_history (
+  house_id         smallint not null references public.houses (id) on delete cascade,
+  ym               text not null check (ym ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  nights_booked    integer not null check (nights_booked >= 0),
+  nights_available integer not null check (nights_available >= 0),
+  room_revenue     numeric(12,2) not null default 0 check (room_revenue >= 0),
+  primary key (house_id, ym),
+  check (nights_booked <= nights_available or nights_available = 0)
+);
+alter table public.monthly_history enable row level security;
+drop policy if exists "members read history" on public.monthly_history;
+create policy "members read history" on public.monthly_history
+  for select to authenticated using (public.is_active_member());
+drop policy if exists "owner edits history" on public.monthly_history;
+create policy "owner edits history" on public.monthly_history
+  for all to authenticated using (public.is_owner()) with check (public.is_owner());
+
+-- ─────────────────────────────────────────────────────────────
 -- Live updates: phones see each other's changes without refreshing.
 -- ─────────────────────────────────────────────────────────────
 do $$
