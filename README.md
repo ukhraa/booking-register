@@ -4,8 +4,10 @@ The booking register for Two Seas Residence's 6 apartments. It runs in any brows
 
 Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra bed, firewood, gas), OTA advance and cash/UPI payments. The app works out nights, GST, totals and the balance, and flags any booking whose payments don't add up.
 
-- **Register**: totals for Today, This month, the financial year (April–March) and year to date, covering bookings, room nights, gross total, GST, advance/OTA, balance after OTA, cash and UPI. Bookings are counted by check-in date. Below the totals: the monthly list with filters, search and CSV export for Excel/accounts.
-- Register, Apartments and Settings are in a tab bar at the bottom of the screen.
+- **Summary** (opens first): today's occupancy, arrivals and departures, and totals for Today, This month, the financial year (April–March) and year to date. The totals cover bookings, room nights, gross total, GST, advance/OTA, balance after OTA, cash and UPI, counted by check-in date.
+- **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
+- **New booking** (the + button) opens the booking form from any screen.
+- Summary, Register, New booking, Apartments and Settings are in a tab bar at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
 - **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.

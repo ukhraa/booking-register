@@ -186,7 +186,7 @@ async function loadBookings() {
 async function loadUpcoming() {
   const { data, error } = await sb.from("bookings")
     .select("id,serial,house_id,guest_name,check_in,check_out,booking_type")
-    .gt("check_out", todayISO()).order("check_in").limit(300);
+    .gte("check_out", todayISO()).order("check_in").limit(300); // includes today's check-outs
   if (!error) state.upcoming = data;
 }
 
@@ -241,6 +241,7 @@ async function reloadAll() {
   buildHouseSelects();
   await Promise.all([loadBookings(), loadUpcoming(), loadTotals()]);
   renderTotals();
+  renderToday();
   renderRegister();
   renderHouses();
   if (isOwner()) renderSettings();
@@ -383,6 +384,29 @@ $("exportBtn").addEventListener("click", () => {
 });
 
 // ════════════════════════════ Apartments ════════════════════════════
+// Summary: who is arriving, staying and leaving today.
+function renderToday() {
+  const today = todayISO();
+  const t = dayNumber(today);
+  $("todayDate").textContent = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+  const stays = state.upcoming;
+  const arriving = stays.filter((b) => b.check_in === today);
+  const leaving = stays.filter((b) => b.check_out === today);
+  const staying = stays.filter((b) => dayNumber(b.check_in) <= t && dayNumber(b.check_out) > t);
+  const occupied = new Set(staying.map((b) => b.house_id)).size;
+  const list = (rows, line) => rows.length
+    ? `<ul>${rows.map((b) => `<li><b>${esc(b.guest_name)}</b><span>${esc(houseName(b.house_id))}${line(b)}</span></li>`).join("")}</ul>`
+    : `<p class="muted small">None</p>`;
+  const card = (title, count, body, cls = "") =>
+    `<div class="today-card ${cls}"><div class="today-head"><span>${title}</span><b>${count}</b></div>${body}</div>`;
+  $("todayGrid").innerHTML = [
+    card("Occupied tonight", `${occupied} of ${state.houses.length}`,
+      `<div class="meter" role="img" aria-label="${occupied} of ${state.houses.length} apartments occupied"><i style="width:${state.houses.length ? (occupied / state.houses.length) * 100 : 0}%"></i></div>`, "occ"),
+    card("Arriving today", arriving.length, list(arriving, (b) => ` · until ${formatDate(b.check_out)}`)),
+    card("Leaving today", leaving.length, list(leaving, (b) => ` · since ${formatDate(b.check_in)}`)),
+  ].join("");
+}
+
 function renderHouses() {
   const today = todayISO();
   const t = dayNumber(today);
@@ -404,10 +428,11 @@ function renderHouses() {
 }
 
 // ════════════════════════════ Tabs ════════════════════════════
-document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach((b) => b.removeAttribute("aria-current"));
+// New booking is also in the bar, but it opens the form instead of switching section.
+document.querySelectorAll(".tab[data-tab]").forEach((btn) => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tab[data-tab]").forEach((b) => b.removeAttribute("aria-current"));
   btn.setAttribute("aria-current", "page");
-  ["register", "houses", "settings"].forEach((t) => show(`tab-${t}`, t === btn.dataset.tab));
+  ["summary", "register", "houses", "settings"].forEach((t) => show(`tab-${t}`, t === btn.dataset.tab));
   window.scrollTo({ top: 0 });
 }));
 

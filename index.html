@@ -50,8 +50,15 @@
     </header>
 
     <main class="wrap">
-      <!-- Register -->
-      <section id="tab-register" class="stack">
+      <!-- Summary -->
+      <section id="tab-summary" class="stack">
+        <section class="today" aria-labelledby="todayTitle">
+          <div class="row-between">
+            <h2 id="todayTitle">Today</h2>
+            <span class="muted small" id="todayDate"></span>
+          </div>
+          <div class="today-grid" id="todayGrid"></div>
+        </section>
         <section class="totals" aria-labelledby="totalsTitle">
           <div class="row-between">
             <h2 id="totalsTitle">Totals</h2>
@@ -65,11 +72,14 @@
           </div>
           <div class="totalsbox"><table class="totals-table show-0" id="totalsTable"></table></div>
         </section>
+      </section>
+
+      <!-- Register -->
+      <section id="tab-register" class="stack" hidden>
         <div class="row-between">
           <h2 id="periodTitle">Bookings</h2>
           <div class="actions">
             <button class="btn" id="exportBtn">Export CSV</button>
-            <button class="btn primary" id="newBtn">New booking</button>
           </div>
         </div>
         <div class="filters">
@@ -154,9 +164,17 @@
     </main>
 
     <nav class="bottomnav" aria-label="Sections">
-      <button class="tab" data-tab="register" aria-current="page">
+      <button class="tab" data-tab="summary" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10 M10 20V4 M16 20v-7 M22 20H2"/></svg>
+        <span>Summary</span>
+      </button>
+      <button class="tab" data-tab="register">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h10l3 3v15H6z M9 9h7 M9 13h7 M9 17h4"/></svg>
         <span>Register</span>
+      </button>
+      <button class="tab tab-new" id="newBtn" type="button">
+        <span class="plus" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14 M5 12h14"/></svg></span>
+        <span class="lbl-long">New booking</span><span class="lbl-short">New</span>
       </button>
       <button class="tab" data-tab="houses">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6"/></svg>

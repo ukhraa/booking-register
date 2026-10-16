@@ -99,6 +99,34 @@ code { font-family: var(--mono); font-size: .9em; background: var(--sunk); paddi
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+/* "New booking" in the bottom bar: a raised plus button */
+.tab-new { color: var(--accent); }
+.tab-new .plus { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; box-shadow: 0 2px 6px rgb(0 0 0 / .18); }
+.tab-new .plus svg { stroke: var(--accent-ink); width: 20px; height: 20px; stroke-width: 2.4; }
+.tab-new:hover { color: var(--accent); }
+.tab-new .lbl-short { display: none; }
+@media (max-width: 480px) {
+  .tab { font-size: 11px; }
+  .bottomnav { gap: 0; padding-inline: 2px; }
+  .tab-new .lbl-long { display: none; }
+  .tab-new .lbl-short { display: inline; }
+}
+
+/* Summary: today's snapshot */
+.today { display: flex; flex-direction: column; gap: 8px; }
+.today-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 699px) { .today-grid { grid-template-columns: 1fr 1fr; } .today-card.occ { grid-column: 1 / -1; } }
+.today-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.today-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.today-head b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.3rem; color: var(--fg); font-weight: 500; }
+.today-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.today-card li { display: flex; flex-direction: column; min-width: 0; }
+.today-card li b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-card li span { color: var(--muted); font-size: 13px; }
+.today-card p { margin: 0; }
+.meter { height: 8px; border-radius: 999px; background: var(--sunk); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+
 /* totals by period: figures down the side, periods across */
 .totals { display: flex; flex-direction: column; gap: 8px; }
 .totalsbox { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
