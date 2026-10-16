@@ -8,8 +8,10 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Register**: the monthly booking list with filters, search and CSV export for Excel/accounts
 - **New booking** (the + button) opens the booking form from any screen.
 - **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.
+- **Performance**: hotel performance metrics for a period you choose (this month, last month, last 3 months, year to date, this financial year, last 12 months), each compared with the period before. The metrics are occupancy, average daily rate (ADR), RevPAR, TRevPAR, direct-booking share, estimated OTA commission, average length of stay, a comparison of apartments, weekends vs weekdays, extras per stay and unpaid balances. Each box shows the figure, a trend line and whether you're on target. Tap a box for a chart, what the metric means, why it matters, how you compare with your target, and what to do. Targets and OTA commission rates are set in Settings.
+- **Settings** is the gear icon at the top (owners only).
 - **Light and Dark mode**: Light (white and blue) is the default. Tap the moon at the top to switch to Dark (black and blue), and the sun to switch back. Each phone or computer remembers its own choice.
-- Summary, Register, New booking, Availability and Settings are in a tab bar at the bottom of the screen.
+- Summary, Register, New booking, Availability and Performance are in a tab bar at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
 - **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.

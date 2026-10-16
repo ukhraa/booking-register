@@ -6,6 +6,8 @@ import {
   addDays, availabilityGrid, occupancy,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
+import { computeMetrics, monthlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor } from "./perf.js";
+import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -77,6 +79,10 @@ const state = {
   fyRows: [],        // this financial year's bookings, for the Totals table
   calMonth: todayISO().slice(0, 7), // month shown on the Availability grid
   calStays: [],      // bookings touching that month
+  perfRows: [],      // bookings for the Performance tab (about two years)
+  settingsMap: {},   // every row of the settings table, key → number
+  targets: { ...DEFAULT_TARGETS },
+  perfMetrics: [],
   editing: null,     // booking being edited, or null for a new one
   gstTouched: false,
   overlapAck: false,
@@ -157,7 +163,7 @@ async function enterApp(session) {
   }
   state.profile = profile;
   $("whoName").textContent = `${profile.full_name || profile.email} · ${profile.role === "owner" ? "Owner" : "Staff"}`;
-  show("settingsTab", isOwner());
+  show("settingsBtn", isOwner());
   show("loginView", false);
   show("appView");
   buildStaticSelects();
@@ -186,10 +192,15 @@ async function loadRates() {
   const { data, error } = await sb.from("settings").select("key,value");
   if (error) { state.ratesLoaded = false; return; } // table missing: keep defaults
   state.ratesLoaded = true;
+  state.settingsMap = {};
   for (const row of data) {
+    state.settingsMap[row.key] = num(row.value);
     const k = row.key.replace(/_rate$/, "");
     if (EXTRAS.includes(k)) state.rates[k] = num(row.value);
   }
+  const t = { ...DEFAULT_TARGETS };
+  for (const k of Object.keys(t)) if (`target_${k}` in state.settingsMap) t[k] = state.settingsMap[`target_${k}`];
+  state.targets = t;
 }
 
 async function loadBusiness() {
@@ -274,8 +285,9 @@ try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadPerf()]);
   renderTotals();
+  renderPerf();
   renderToday();
   renderRegister();
   renderCalendar();
@@ -556,15 +568,107 @@ $("calPrev").addEventListener("click", () => shiftMonth(-1));
 $("calNext").addEventListener("click", () => shiftMonth(1));
 $("calToday").addEventListener("click", () => { state.calMonth = todayISO().slice(0, 7); shiftMonth(0); });
 
+// ════════════════════════════ Performance ════════════════════════════
+// About two years of bookings: enough for "last FY" and "same dates last year".
+async function loadPerf() {
+  const today = todayISO();
+  const [y, m] = today.split("-").map(Number);
+  const from = new Date(Date.UTC(y - 2, m - 1, 1)).toISOString().slice(0, 10);
+  const to = perfPeriod("fy", today).end;
+  const pageSize = 1000;
+  let rows = [];
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await sb.from("bookings").select("*")
+      .gt("check_out", from).lte("check_in", to).order("check_in").range(start, start + pageSize - 1);
+    if (error) return;
+    rows = rows.concat(data);
+    if (data.length < pageSize) break;
+  }
+  state.perfRows = rows;
+}
+
+function renderPerf() {
+  const today = todayISO();
+  const period = perfPeriod($("perfPeriod").value, today);
+  const opts = { commission: state.settingsMap, today };
+  const cur = computeMetrics(state.perfRows, state.houses, period.start, period.end, opts);
+  const prev = computeMetrics(state.perfRows, state.houses, period.prev.start, period.prev.end, opts);
+  // Trend charts: the 12 months ending with the period (FY shows its own April–March).
+  const endYm = period.key === "fy" ? period.end.slice(0, 7) : (period.end > today ? today : period.end).slice(0, 7);
+  const series = monthlySeries(state.perfRows, state.houses, endYm, opts);
+  state.perfMetrics = buildMetrics({ cur, prev, series, period, targets: state.targets, houses: state.houses, houseColour });
+  $("perfNote").textContent = `${formatDate(period.start)} to ${formatDate(period.end)} · compared with ${period.prev.label}${period.end > today ? " · includes bookings already made for later dates" : ""}`;
+  $("perfCards").innerHTML = cardsHTML(state.perfMetrics);
+  if (!$("perfSheet").hidden && state.perfOpen) openPerf(state.perfOpen); // keep an open detail up to date
+}
+$("perfPeriod").addEventListener("change", () => {
+  try { localStorage.setItem("perfPeriod", $("perfPeriod").value); } catch {}
+  renderPerf();
+});
+try { const p = localStorage.getItem("perfPeriod"); if (p && [...$("perfPeriod").options].some((o) => o.value === p)) $("perfPeriod").value = p; } catch {}
+
+function openPerf(key) {
+  const m = state.perfMetrics.find((x) => x.key === key);
+  if (!m) return;
+  state.perfOpen = key;
+  $("perfTitle").textContent = m.label;
+  $("perfBody").innerHTML = detailHTML(m, isOwner());
+  show("perfSheet");
+}
+function closePerf() { show("perfSheet", false); state.perfOpen = null; hideTip(); }
+$("perfCards").addEventListener("click", (e) => { const c = e.target.closest("[data-metric]"); if (c) openPerf(c.dataset.metric); });
+document.querySelectorAll("[data-pclose]").forEach((el) => el.addEventListener("click", closePerf));
+$("perfBody").addEventListener("click", (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) {
+    const b = state.perfRows.find((x) => x.id === open.dataset.open);
+    if (b) { closePerf(); openSheet(b); }
+    return;
+  }
+  if (e.target.closest("[data-goto]")) { closePerf(); showTab("settings"); $("targetsForm").scrollIntoView({ block: "start" }); }
+});
+
+// Shared chart tooltip: any element with data-tip, on hover or keyboard focus.
+const tip = $("chartTip");
+function showTipFor(el, x, y) {
+  tip.textContent = el.getAttribute("data-tip");
+  show(tip);
+  const r = tip.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - r.width - 8, Math.max(8, x - r.width / 2));
+  const top = y - r.height - 12 < 8 ? y + 16 : y - r.height - 12;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+function hideTip() { show(tip, false); }
+document.addEventListener("pointerover", (e) => {
+  const el = e.target.closest?.("[data-tip]");
+  if (el) showTipFor(el, e.clientX, e.clientY); else hideTip();
+});
+document.addEventListener("pointermove", (e) => {
+  const el = e.target.closest?.("[data-tip]");
+  if (el && !tip.hidden) showTipFor(el, e.clientX, e.clientY);
+});
+document.addEventListener("focusin", (e) => {
+  const el = e.target.closest?.("[data-tip]");
+  if (!el) return hideTip();
+  const r = el.getBoundingClientRect();
+  showTipFor(el, r.left + r.width / 2, r.top);
+});
+document.addEventListener("scroll", hideTip, true);
+
 // ════════════════════════════ Tabs ════════════════════════════
 // New booking is also in the bar, but it opens the form instead of switching section.
-document.querySelectorAll(".tab[data-tab]").forEach((btn) => btn.addEventListener("click", () => {
-  document.querySelectorAll(".tab[data-tab]").forEach((b) => b.removeAttribute("aria-current"));
-  btn.setAttribute("aria-current", "page");
-  ["summary", "register", "houses", "settings"].forEach((t) => show(`tab-${t}`, t === btn.dataset.tab));
-  if (btn.dataset.tab === "houses") scrollCalToToday();
+function showTab(name) {
+  document.querySelectorAll(".tab[data-tab]").forEach((b) => {
+    if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  $("settingsBtn").setAttribute("aria-pressed", String(name === "settings"));
+  ["summary", "register", "houses", "perf", "settings"].forEach((t) => show(`tab-${t}`, t === name));
+  if (name === "houses") scrollCalToToday();
   window.scrollTo({ top: 0 });
-}));
+}
+document.querySelectorAll(".tab[data-tab]").forEach((btn) => btn.addEventListener("click", () => showTab(btn.dataset.tab)));
+$("settingsBtn").addEventListener("click", () => showTab("settings"));
 
 // ════════════════════════════ Booking form ════════════════════════════
 // Typed money fields. Extra Bed, Firewood and Gas (see EXTRAS) are Yes/No + Days;
@@ -721,6 +825,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("billView").hidden) closeBill();
   else if (!$("sheet").hidden) closeSheet();
+  else if (!$("perfSheet").hidden) closePerf();
 });
 
 function formError(msg) { const e = $("formErr"); e.textContent = msg; show(e); e.scrollIntoView({ block: "nearest" }); }
@@ -867,6 +972,13 @@ async function renderSettings() {
     show("ratesErr");
   } else show("ratesErr", false);
 
+  // Performance targets and commission rates
+  if (!$("targetsForm").contains(document.activeElement)) {
+    Object.keys(DEFAULT_TARGETS).forEach((k) => ($(`t_${k}`).value = state.targets[k]));
+    $("commissionInputs").innerHTML = BOOKING_TYPES.map((t, i) =>
+      `<div class="f"><label for="cm${i}">${esc(t)}</label><input id="cm${i}" data-ctype="${esc(t)}" type="number" min="0" max="50" step="0.5" inputmode="decimal" value="${commissionFor(t, state.settingsMap)}"></div>`).join("");
+  }
+
   if (!$("bizForm").contains(document.activeElement)) BIZ_FIELDS.forEach((k) => ($(`biz_${k}`).value = state.business[k]));
   if (!state.businessLoaded) {
     $("bizErr").textContent = "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then reopen the app.";
@@ -921,6 +1033,32 @@ $("housesForm").addEventListener("submit", async (e) => {
 $("houseInputs").addEventListener("change", (e) => {
   const sel = e.target.closest("[data-colour]");
   if (sel) $(`hs${sel.dataset.colour}`).className = `swatch c-${sel.value}`;
+});
+
+$("targetsForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("targetsErr", false);
+  const err = (m) => { $("targetsErr").textContent = m; show("targetsErr"); };
+  const v = (id) => Number($(id).value);
+  const t = { occupancy: v("t_occupancy"), adr: v("t_adr"), direct: v("t_direct"), alos: v("t_alos") };
+  if (!(t.occupancy >= 1 && t.occupancy <= 100)) return err("Enter an occupancy target between 1 and 100%.");
+  if (!(t.adr >= 0)) return err("Enter a room rate target of 0 or more (0 = compare with your 12-month average).");
+  if (!(t.direct >= 0 && t.direct <= 100)) return err("Enter a direct bookings target between 0 and 100%.");
+  if (!(t.alos >= 1 && t.alos <= 30)) return err("Enter an average stay target between 1 and 30 nights.");
+  const now = new Date().toISOString();
+  const rows = Object.entries(t).map(([k, value]) => ({ key: `target_${k}`, value, updated_at: now }));
+  for (const inp of document.querySelectorAll("[data-ctype]")) {
+    const value = Number(inp.value);
+    if (inp.value === "" || !(value >= 0 && value <= 50)) return err(`Enter a commission between 0 and 50% for ${inp.dataset.ctype}.`);
+    rows.push({ key: commissionKey(inp.dataset.ctype), value, updated_at: now });
+  }
+  const { error } = await sb.from("settings").upsert(rows);
+  if (error) return err(/settings|relation|schema cache/i.test(error.message)
+    ? "The settings table isn't set up yet. Run supabase/migrations/002_extra_charges.sql in Supabase (SQL Editor), then try again."
+    : "Couldn't save the targets. Check your connection and try again.");
+  document.activeElement?.blur();
+  toast("Targets saved");
+  reloadAll();
 });
 
 $("ratesForm").addEventListener("submit", async (e) => {
