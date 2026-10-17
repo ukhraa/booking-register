@@ -31,7 +31,7 @@ function delta(cur, prev, kind, upIsGood = true, prevLabel = "") {
  * ctx: { cur, prev, series, period, targets, houses, houseColour }
  */
 export function buildMetrics(ctx) {
-  const { cur, prev, series, years = [], period, targets, houses, houseColour } = ctx;
+  const { cur, prev, series, years = [], period, targets, houses, houseColour, profit } = ctx;
   // Figures the spreadsheet history doesn't have: only from bookings entered in the app.
   const histUsed = cur.historyShare > 0;
   const appNote = histUsed ? (cur.appSold || cur.stays ? "From bookings entered in the app only" : "Starts once bookings are entered in the app") : null;
@@ -275,6 +275,7 @@ export function buildMetrics(ctx) {
       },
     },
   ];
+  if (profit) list.push(...profitCards(profit, targets, pl, monthLabel, monthLong));
   if (appNote) for (const m of list) if (m.appOnly) {
     m.note = "The spreadsheet history only has nights and room revenue, so this uses bookings entered in the app.";
     if (!(cur.appSold || cur.stays)) { m.value = "–"; m.status = "none"; m.delta = ""; m.sub = appNote; }
@@ -321,4 +322,65 @@ export function detailHTML(m, isOwner) {
     ${m.youVs ? `<section class="pd-block"><h3>You vs where you should be</h3><p>${m.youVs}</p></section>` : ""}
     <section class="pd-block"><h3>What to do</h3><ul>${tips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>
     ${isOwner && ["occupancy", "adr", "revpar", "direct", "alos", "commission", "apartments", "weekend"].includes(m.key) ? `<p class="muted small">Targets and commission rates can be changed in <button type="button" class="linkish" data-goto="settings">Settings</button>.</p>` : ""}`;
+}
+
+/** Owner-only: Profit and Cost per night sold, from the Expenses tab. */
+function profitCards(pr, targets, pl, monthLabel, monthLong) {
+  const { cur, prev, series } = pr;
+  const curYm = series.at(-1)?.ym;
+  const months = series.map((s) => ({ ...s, label: monthLabel(s.ym), current: s.ym === curYm }));
+  const coverage = cur.hasData && cur.monthsCovered < cur.monthsTotal
+    ? `Covers ${cur.monthsCovered} of ${cur.monthsTotal} months: only months with expenses entered count.` : "";
+  const target = targets.margin ?? 30;
+  const marginStatus = !cur.hasData ? "none" : cur.profit < 0 ? "bad" : rate(cur.margin, target, 10);
+  const cporStatus = !cur.hasData || !cur.sold ? "none" : prev.hasData && prev.sold ? (cur.cpor <= prev.cpor ? "good" : cur.cpor <= prev.cpor * 1.1 ? "warn" : "bad") : "info";
+  const noData = "Enter this period's expenses in the Expenses tab to see profit.";
+  const top = cur.byCategory.slice(0, 8);
+  const rest = cur.byCategory.slice(8).reduce((s, c) => s + c.amount, 0);
+  const tipM = (m, t) => `${monthLong(m.ym)}${m.partial ? " (so far)" : ""}: ${t}`;
+  return [
+    {
+      key: "profit", label: "Profit", value: cur.hasData ? formatINR(Math.round(cur.profit)) : "–", status: marginStatus,
+      sub: cur.hasData ? `${pct(cur.margin)} of revenue · ${formatINR(Math.round(cur.goppar))} per available night` : noData,
+      delta: cur.hasData ? delta(cur.margin, prev.hasData ? prev.margin : null, "pts", true, pl) : "",
+      spark: cur.hasData ? spark(months.map((m) => (m.hasData ? m.margin : 0))) : "",
+      note: coverage,
+      chart: () => (months.some((m) => m.hasData)
+        ? columns(months.map((m) => ({ label: m.label, value: m.hasData ? m.profit : 0, current: m.current, valueLabel: formatINR(Math.round(m.profit)),
+            tip: m.hasData ? tipM(m, `profit ${formatINR(Math.round(m.profit))} (${pct(m.margin)}) · revenue ${formatINR(Math.round(m.revenue))} · expenses ${formatINR(Math.round(m.expenses))}`) : tipM(m, "no expenses entered") })),
+          { money: true, aria: "Profit by month" })
+        : `<p class="muted">${noData}</p>`),
+      table: () => simpleTable(["Month", "Revenue", "Expenses", "Profit", "Margin"], months.filter((m) => m.hasData).map((m) => [monthLong(m.ym), formatINR(Math.round(m.revenue)), formatINR(Math.round(m.expenses)), formatINR(Math.round(m.profit)), pct(m.margin)])),
+      what: "Revenue (rooms and extras, before GST) minus every expense entered for the period: salaries, bills, OTA fees, kitchen and the rest.",
+      why: "Occupancy and rates only show money coming in. Profit shows what's left after running the property, which is what the business really earns.",
+      youVs: cur.hasData ? `Revenue <b>${formatINR(Math.round(cur.revenue))}</b> − expenses <b>${formatINR(Math.round(cur.expenses))}</b> = <b>${formatINR(Math.round(cur.profit))}</b> · Margin <b>${pct(cur.margin)}</b> vs target <b>${target}%</b>` : "",
+      tips: {
+        good: ["Healthy margin. Keep an eye on the biggest expense lines in Cost per night sold so it stays that way."],
+        warn: ["A little below target. Check Cost per night sold for lines that grew, and look for revenue gains in Occupancy and ADR."],
+        bad: [cur.profit < 0 ? "The property lost money in this period. Check for one-off costs (repairs, festival bonuses) before drawing conclusions." : "Margin is well below target.", "Compare the top expense lines with last month, and push revenue on quiet nights."],
+        none: [noData],
+      },
+    },
+    {
+      key: "cpor", label: "Cost per night sold", value: cur.hasData && cur.sold ? formatINR(Math.round(cur.cpor)) : "–", status: cporStatus,
+      sub: cur.hasData ? `${formatINR(Math.round(cur.expenses))} spent over ${Math.round(cur.sold)} nights` : noData,
+      delta: cur.hasData && cur.sold ? delta(cur.cpor, prev.hasData && prev.sold ? prev.cpor : null, "money", false, pl) : "",
+      spark: cur.hasData ? spark(months.map((m) => m.cpor)) : "",
+      note: coverage,
+      chart: () => (top.length
+        ? hbars([...top.map((c) => ({ label: c.name, value: c.amount, display: `${formatINR(Math.round(c.amount))} · ${pct((c.amount / cur.expenses) * 100)}`, color: "--s2", tip: `${c.name}: ${formatINR(Math.round(c.amount))} (${cur.sold ? formatINR(Math.round(c.amount / cur.sold)) + " per night sold" : ""})` })),
+            ...(rest ? [{ label: "Everything else", value: rest, display: formatINR(Math.round(rest)), color: "--s2" }] : [])])
+        : `<p class="muted">${noData}</p>`),
+      table: () => simpleTable(["Expense", "Amount", "Per night sold", "Share"], cur.byCategory.map((c) => [c.name, formatINR(Math.round(c.amount)), cur.sold ? formatINR(Math.round(c.amount / cur.sold)) : "–", pct((c.amount / cur.expenses) * 100)])),
+      what: "Everything you spent in the period divided by the nights you sold. The chart shows where the money went.",
+      why: "Shows what each stay really costs you. If it rises faster than ADR, profit shrinks even when you're busy.",
+      youVs: cur.hasData && cur.sold ? `Cost <b>${formatINR(Math.round(cur.cpor))}</b> per night sold · ADR for comparison is in the ADR box` : "",
+      tips: {
+        good: ["Costs per night are steady or falling."], info: ["Compare this with your ADR: the gap between them is your profit per night."],
+        warn: ["Slightly up. Check the top three expense lines against last month."],
+        bad: ["Up noticeably. Look at the biggest lines first: salaries and EB usually dominate, kitchen and laundry are easiest to trim."],
+        none: [noData],
+      },
+    },
+  ];
 }

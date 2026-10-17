@@ -6,7 +6,7 @@ import {
   addDays, availabilityGrid, occupancy,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
-import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor } from "./perf.js";
+import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor, profitMetrics, monthlyProfitSeries } from "./perf.js";
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
 
@@ -81,6 +81,7 @@ const state = {
   calMonth: todayISO().slice(0, 7), // month shown on the Availability grid
   calStays: [],      // bookings touching that month
   perfRows: [],      // bookings for the Performance tab (about two years)
+  perfExpenses: null, // owners only: { cats, monthly, daily } for Profit
   history: [],       // monthly figures from before the app (monthly_history)
   exp: { ready: false, cats: [], daily: {}, monthly: {}, view: "daily", day: todayISO(), ym: todayISO().slice(0, 7), dirty: false, discardArmed: false },
   settingsMap: {},   // every row of the settings table, key → number
@@ -595,6 +596,25 @@ async function loadPerf() {
   // Monthly figures from before the app (table added by migration 007; missing = none).
   const { data: hist, error: hErr } = await sb.from("monthly_history").select("house_id,ym,nights_booked,nights_available,room_revenue").limit(5000);
   state.history = hErr ? [] : hist;
+  // Owners: expenses for Profit and Cost per night sold (salaries are owner-only).
+  state.perfExpenses = null;
+  if (isOwner()) {
+    const [{ data: cats, error: cErr }, { data: mon, error: mErr }] = await Promise.all([
+      sb.from("expense_categories").select("id,name"),
+      sb.from("monthly_expenses").select("category_id,ym,amount").gte("ym", from.slice(0, 7)).limit(5000),
+    ]);
+    if (!cErr && !mErr) {
+      let daily = [];
+      for (let start = 0; ; start += pageSize) {
+        const { data, error } = await sb.from("daily_expenses").select("category_id,spent_on,amount")
+          .gte("spent_on", from).order("spent_on").range(start, start + pageSize - 1);
+        if (error) break;
+        daily = daily.concat(data);
+        if (data.length < pageSize) break;
+      }
+      state.perfExpenses = { cats, monthly: mon, daily };
+    }
+  }
 }
 
 function renderPerf() {
@@ -608,7 +628,16 @@ function renderPerf() {
   const series = monthlySeries(state.perfRows, state.houses, endYm, opts);
   const firstYear = Math.min(Number(today.slice(0, 4)), ...state.history.map((h) => Number(h.ym.slice(0, 4))), ...state.perfRows.slice(0, 1).map((b) => Number(b.check_in.slice(0, 4))));
   const years = yearlySeries(state.perfRows, state.houses, firstYear, today, opts);
-  state.perfMetrics = buildMetrics({ cur, prev, series, years, period, targets: state.targets, houses: state.houses, houseColour });
+  let profit = null;
+  if (state.perfExpenses) {
+    const po = { ...opts, expenses: state.perfExpenses };
+    profit = {
+      cur: profitMetrics(state.perfRows, state.houses, period.start, period.end, po),
+      prev: profitMetrics(state.perfRows, state.houses, period.prev.start, period.prev.end, po),
+      series: monthlyProfitSeries(state.perfRows, state.houses, endYm, po),
+    };
+  }
+  state.perfMetrics = buildMetrics({ cur, prev, series, years, period, targets: state.targets, houses: state.houses, houseColour, profit });
   $("perfNote").textContent = `${formatDate(period.start)} to ${formatDate(period.end)} · compared with ${period.prev.label}${state.history.length ? " · months up to " + monthName(state.history.reduce((m, h) => (h.ym > m ? h.ym : m), "")) + " use your spreadsheet history" : ""}`;
   $("perfCards").innerHTML = cardsHTML(state.perfMetrics);
   if (!$("perfSheet").hidden && state.perfOpen) openPerf(state.perfOpen); // keep an open detail up to date
@@ -839,6 +868,7 @@ $("mForm").addEventListener("submit", async (e) => {
     await loadMonthly(x.ym);
     renderMonthly();
     toast(`${ymLong(x.ym)} saved`);
+    loadPerf().then(renderPerf); // Profit on the Performance tab
   } catch {
     $("mErr").textContent = navigator.onLine ? "Couldn't save the month. Try again." : "You're offline, so nothing was saved. Try again when you're connected.";
     show("mErr");
@@ -925,6 +955,7 @@ $("dForm").addEventListener("submit", async (e) => {
   if (error) return err(navigator.onLine ? "Couldn't save. Try again." : "You're offline, so it wasn't saved. Try again when you're connected.");
   $("dAmt").value = ""; $("dNote").value = "";
   toast(`${formatINR(amount)} added`);
+  if (isOwner()) loadPerf().then(renderPerf);
   await loadDaily(ymOf(state.exp.day));
   if (state.exp.ym === ymOf(state.exp.day) && !state.exp.dirty && isOwner()) renderMonthly();
   renderDaily();
@@ -1339,11 +1370,12 @@ $("targetsForm").addEventListener("submit", async (e) => {
   show("targetsErr", false);
   const err = (m) => { $("targetsErr").textContent = m; show("targetsErr"); };
   const v = (id) => Number($(id).value);
-  const t = { occupancy: v("t_occupancy"), adr: v("t_adr"), direct: v("t_direct"), alos: v("t_alos") };
+  const t = { occupancy: v("t_occupancy"), adr: v("t_adr"), direct: v("t_direct"), alos: v("t_alos"), margin: v("t_margin") };
   if (!(t.occupancy >= 1 && t.occupancy <= 100)) return err("Enter an occupancy target between 1 and 100%.");
   if (!(t.adr >= 0)) return err("Enter a room rate target of 0 or more (0 = compare with your 12-month average).");
   if (!(t.direct >= 0 && t.direct <= 100)) return err("Enter a direct bookings target between 0 and 100%.");
   if (!(t.alos >= 1 && t.alos <= 30)) return err("Enter an average stay target between 1 and 30 nights.");
+  if (!(t.margin >= 0 && t.margin <= 100)) return err("Enter a profit margin target between 0 and 100%.");
   const now = new Date().toISOString();
   const rows = Object.entries(t).map(([k, value]) => ({ key: `target_${k}`, value, updated_at: now }));
   for (const inp of document.querySelectorAll("[data-ctype]")) {

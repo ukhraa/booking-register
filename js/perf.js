@@ -13,7 +13,7 @@ export const DEFAULT_COMMISSION = {
   "Direct": 0, "Walk-in": 0, "Phone / WhatsApp": 0,
   "Airbnb": 15, "Booking.com": 18, "MakeMyTrip": 20, "Goibibo": 20, "Agoda": 18, "Other OTA": 18,
 };
-export const DEFAULT_TARGETS = { occupancy: 65, adr: 0, direct: 40, alos: 2 }; // adr 0 = "use your 12-month average"
+export const DEFAULT_TARGETS = { occupancy: 65, adr: 0, direct: 40, alos: 2, margin: 30 }; // adr 0 = "use your 12-month average"; margin = profit % of revenue
 
 export const commissionKey = (type) => `commission_${String(type).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
 export function commissionFor(type, rates) {
@@ -230,4 +230,51 @@ export function rate(value, target, warnBand, higherIsBetter = true) {
   if (diff >= 0) return "good";
   if (diff >= -warnBand) return "warn";
   return "bad";
+}
+
+/**
+ * Profit for nights from `start` to `end`, counting ONLY months that have
+ * expenses entered (so months from before you tracked costs don't show as
+ * 100% profit). Monthly amounts are pro-rated when the period covers part of
+ * a month; daily entries count on the day they were spent.
+ * opts.expenses = { cats: [{id, name}], monthly: [{category_id, ym, amount}], daily: [{category_id, spent_on, amount}] }
+ */
+export function profitMetrics(bookings, houses, start, end, opts = {}) {
+  const ex = opts.expenses || { cats: [], monthly: [], daily: [] };
+  const name = new Map(ex.cats.map((c) => [c.id, c.name]));
+  const monthsWithData = new Set([...ex.monthly.filter((r) => num(r.amount) > 0).map((r) => r.ym), ...ex.daily.map((r) => String(r.spent_on).slice(0, 7))]);
+  let revenue = 0, expenses = 0, sold = 0, available = 0, monthsTotal = 0, monthsCovered = 0;
+  const byCat = new Map();
+  const addCat = (id, v) => { const k = name.get(id) || "Other"; byCat.set(k, (byCat.get(k) || 0) + v); };
+  for (let mStart = `${start.slice(0, 7)}-01`; mStart <= end; mStart = addDays(monthRange(mStart.slice(0, 7))[1], 1)) {
+    const ym = mStart.slice(0, 7);
+    const [ms, me] = monthRange(ym);
+    const from = start > ms ? start : ms, to = end < me ? end : me;
+    monthsTotal++;
+    if (!monthsWithData.has(ym)) continue;
+    monthsCovered++;
+    const frac = daysBetweenIncl(from, to) / daysBetweenIncl(ms, me);
+    const m = computeMetrics(bookings, houses, from, to, opts);
+    revenue += m.roomRev + m.extrasRev; sold += m.sold; available += m.available;
+    for (const r of ex.monthly) if (r.ym === ym) { const v = num(r.amount) * frac; expenses += v; addCat(r.category_id, v); }
+    for (const r of ex.daily) { const d = String(r.spent_on); if (d >= from && d <= to) { const v = num(r.amount); expenses += v; addCat(r.category_id, v); } }
+  }
+  const profit = revenue - expenses;
+  return {
+    revenue: r2(revenue), expenses: r2(expenses), profit: r2(profit),
+    margin: revenue ? (profit / revenue) * 100 : 0,
+    sold, available,
+    goppar: available ? r2(profit / available) : 0,   // profit per available apartment-night
+    cpor: sold ? r2(expenses / sold) : 0,             // cost per night sold
+    monthsTotal, monthsCovered, hasData: monthsCovered > 0,
+    byCategory: [...byCat.entries()].map(([k, v]) => ({ name: k, amount: r2(v) })).filter((x) => x.amount > 0).sort((a, b) => b.amount - a.amount),
+  };
+}
+
+export function monthlyProfitSeries(bookings, houses, endYm, opts = {}, count = 12) {
+  return lastMonths(endYm, count).map((ym) => {
+    const [s, e0] = monthRange(ym);
+    const e = opts.today && e0 > opts.today ? opts.today : e0;
+    return { ym, partial: e !== e0, ...profitMetrics(bookings, houses, s, e, opts) };
+  });
 }

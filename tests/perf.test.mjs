@@ -133,3 +133,38 @@ test("monthly history fills months before the app, app bookings take over after"
   const years = yearlySeries(bookings, houses, 2025, "2026-10-16", { history });
   assert.deepEqual(years.map((y) => [y.year, y.partial]), [[2025, false], [2026, true]]);
 });
+
+test("profit only counts months with expenses entered, pro-rates monthly costs", async () => {
+  const { profitMetrics, monthlyProfitSeries } = await import("../js/perf.js");
+  const houses = [{ id: 1, name: "Bhoomi" }];
+  const history = [
+    { house_id: 1, ym: "2026-08", nights_booked: 20, nights_available: 31, room_revenue: 140000 },
+    { house_id: 1, ym: "2026-09", nights_booked: 18, nights_available: 30, room_revenue: 120000 },
+  ];
+  const expenses = {
+    cats: [{ id: 1, name: "Salaries" }, { id: 2, name: "Kitchen" }],
+    monthly: [{ category_id: 1, ym: "2026-09", amount: 60000 }],          // August has no expenses entered
+    daily: [{ category_id: 2, spent_on: "2026-09-10", amount: 3000 }, { category_id: 2, spent_on: "2026-09-25", amount: 2000 }],
+  };
+  const opts = { history, expenses };
+  const both = profitMetrics([], houses, "2026-08-01", "2026-09-30", opts);
+  assert.equal(both.monthsTotal, 2);
+  assert.equal(both.monthsCovered, 1);          // August skipped: no expenses
+  assert.equal(both.revenue, 120000);           // September only
+  assert.equal(both.expenses, 65000);
+  assert.equal(both.profit, 55000);
+  assert.equal(Math.round(both.margin), 46);
+  assert.equal(both.cpor, Math.round((65000 / 18) * 100) / 100);
+  assert.deepEqual(both.byCategory.map((c) => c.name), ["Salaries", "Kitchen"]);
+
+  // First half of September: half the salary, the one daily entry before the 15th, half the revenue
+  const half = profitMetrics([], houses, "2026-09-01", "2026-09-15", opts);
+  assert.equal(half.expenses, 30000 + 3000);
+  assert.equal(half.revenue, 60000);
+
+  const none = profitMetrics([], houses, "2026-08-01", "2026-08-31", opts);
+  assert.equal(none.hasData, false);
+
+  const series = monthlyProfitSeries([], houses, "2026-09", opts, 2);
+  assert.deepEqual(series.map((m) => [m.ym, m.hasData, m.profit]), [["2026-08", false, 0], ["2026-09", true, 55000]]);
+});

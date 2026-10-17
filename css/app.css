@@ -575,3 +575,8 @@ details.numbers td.r, details.numbers th.r { text-align: right; font-family: var
 .add-line input { flex: 1 1 200px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40px; min-width: 0; }
 .exp-table tbody th { background: transparent; }
 .exp-table tbody tr:hover th, .exp-table tbody tr:hover td { background: var(--sunk); }
+
+/* Bars live in their own lane so the value label never runs off the edge */
+.hb-lane { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; min-height: 22px; }
+.hb-track .hb-val { flex: 0 0 auto; min-width: 0; }
+@media (max-width: 480px) { .hb { grid-template-columns: minmax(80px, 34%) 1fr; gap: 8px; } .hb-val { font-size: 11px; } }
