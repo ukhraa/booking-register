@@ -441,6 +441,10 @@ create policy "own or owner deletes daily" on public.daily_expenses
 alter table public.bookings
   add column if not exists from_diary boolean not null default false;
 
+-- Guest phone number, for sending the bill on WhatsApp (migration 010).
+alter table public.bookings
+  add column if not exists guest_phone text not null default '';
+
 create table if not exists public.monthly_food_income (
   ym     text primary key check (ym ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   amount numeric(12,2) not null default 0 check (amount >= 0)

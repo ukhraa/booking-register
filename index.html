@@ -354,6 +354,7 @@
           <div class="f"><label for="house_id">House Name</label><select id="house_id"></select></div>
           <div class="f"><label for="booking_type">Booking Type</label><select id="booking_type"></select></div>
           <div class="f"><label for="guest_name">Guest Name</label><input id="guest_name" type="text" autocomplete="off"></div>
+          <div class="f"><label for="guest_phone">Guest Phone (WhatsApp)</label><input id="guest_phone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="98765 43210"></div>
           <div class="f"><label for="check_in">Check-in Date</label><input id="check_in" type="date"></div>
           <div class="f"><label for="check_out">Check-out Date</label><input id="check_out" type="date"></div>
           <div class="f calc"><span class="lbl">No. of Nights</span><output id="o_nights">0</output></div>
@@ -421,7 +422,22 @@
     <div class="bill-bar">
       <button class="btn ghost" id="billCloseBtn" type="button">Close</button>
       <span class="grow"></span>
-      <button class="btn primary" id="billPrintBtn" type="button">Print / Save PDF</button>
+      <button class="btn wa" id="billWaBtn" type="button" aria-expanded="false" aria-controls="waPanel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>
+        <span>WhatsApp</span>
+      </button>
+      <button class="btn primary" id="billPrintBtn" type="button"><span class="lbl-long">Print / Save PDF</span><span class="lbl-short">Print</span></button>
+    </div>
+    <div class="wa-panel" id="waPanel" hidden>
+      <div class="wa-row">
+        <label for="waPhone">Guest's WhatsApp number</label>
+        <input id="waPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="98765 43210">
+      </div>
+      <div class="wa-steps">
+        <button class="btn" id="waChatBtn" type="button"><b>1</b> Open chat with message</button>
+        <button class="btn" id="waPdfBtn" type="button"><b>2</b> <span id="waPdfLabel">Send the bill PDF</span></button>
+      </div>
+      <p class="hint" id="waHint">Step 1 opens the guest's chat with a short message about the bill. Then come back and tap step 2, and choose the same chat in WhatsApp to attach the PDF.</p>
     </div>
     <div class="bill-scroll"><div id="billDoc"></div></div>
   </div>

@@ -9,6 +9,7 @@ import { billHTML } from "./bill.js";
 import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor, profitMetrics, monthlyProfitSeries, UNKNOWN_TYPE } from "./perf.js";
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
+import { waPhone, prettyPhone, billMessage, waLink, billFileName, jpegToPdf } from "./whatsapp.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -359,7 +360,7 @@ function visibleBookings() {
     if (h && String(b.house_id) !== h) return false;
     if (t && b.booking_type !== t) return false;
     if (bal && (b.from_diary || (bal === "yes") !== b.total_balanced)) return false; // diary stays have no payments
-    if (q && !`${b.guest_name} ${b.bill_no} ${b.notes} ${houseName(b.house_id)} ${b.serial}`.toLowerCase().includes(q)) return false;
+    if (q && !`${b.guest_name} ${b.guest_phone || ""} ${b.bill_no} ${b.notes} ${houseName(b.house_id)} ${b.serial}`.toLowerCase().includes(q)) return false;
     return true;
   });
 }
@@ -1033,7 +1034,7 @@ $("settingsBtn").addEventListener("click", () => showTab("settings"));
 // Typed money fields. Extra Bed, Firewood and Gas (see EXTRAS) are Yes/No + Days;
 // their amount is the rate per day from Settings × days.
 const MONEY = ["tariff", "gst_pct", "food_bill", "advance_ota", "paid_cash", "cash_received", "tips", "paid_upi"];
-const TEXT = ["booking_type", "guest_name", "check_in", "check_out", "bill_no", "notes"];
+const TEXT = ["booking_type", "guest_name", "guest_phone", "check_in", "check_out", "bill_no", "notes"];
 const FIELDS = ["serial", "house_id", ...TEXT, ...MONEY];
 
 function readForm() {
@@ -1236,6 +1237,7 @@ $("saveBtn").addEventListener("click", async () => {
     if (error) {
       if (error.code === "23505") return formError(`Serial No. ${b.serial} is already used. Use ${await suggestSerial()} instead.`);
       if (error.code === "42501") return formError("Your login isn't allowed to make this change. Ask the owner.");
+      if (/guest_phone/.test(error.message)) return formError("The database needs a small update for guest phone numbers. Ask the owner to run supabase/migrations/010_guest_phone.sql in Supabase (SQL Editor).");
       if (/_days/.test(error.message)) return formError("The database needs a small update for per-day extras. Ask the owner to run supabase/migrations/005_extra_days.sql in Supabase (SQL Editor).");
       return formError(navigator.onLine ? `Couldn't save: ${error.message}` : "You're offline, so the booking wasn't saved. Try again when you're connected.");
     }
@@ -1281,9 +1283,12 @@ $("billBtn").addEventListener("click", async () => {
 });
 
 let titleBeforeBill = document.title;
+const billBiz = () => ({ ...state.business, legal_name: state.business.legal_name || BUSINESS_NAME });
 function openBill(b) {
-  const biz = { ...state.business, legal_name: state.business.legal_name || BUSINESS_NAME };
+  const biz = billBiz();
   $("billDoc").innerHTML = billHTML(b, biz, houseName(b.house_id));
+  state.billBooking = b;
+  state.billPdf = null;
   // Becomes the suggested file name when saving as PDF.
   titleBeforeBill = document.title;
   document.title = `Bill ${b.bill_no.replace(/\//g, "-")} ${b.guest_name}`;
@@ -1292,10 +1297,102 @@ function openBill(b) {
 }
 function closeBill() {
   show("billView", false);
+  show("waPanel", false);
+  $("billWaBtn").setAttribute("aria-expanded", "false");
+  state.billPdf = null;
   document.title = titleBeforeBill;
 }
 $("billCloseBtn").addEventListener("click", closeBill);
 $("billPrintBtn").addEventListener("click", () => window.print());
+
+// ── Send the bill on WhatsApp ──
+// Step 1 opens the guest's chat (wa.me) with a short message; step 2 shares the
+// bill as a PDF (phones: share sheet → WhatsApp; computers: the PDF downloads).
+// WhatsApp can't attach a file through a link, hence the two steps.
+const HTML_TO_IMAGE = "https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js";
+let htmlToImageReady = null;
+function loadHtmlToImage() {
+  return (htmlToImageReady ||= new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = HTML_TO_IMAGE; s.crossOrigin = "anonymous";
+    s.onload = () => (window.htmlToImage ? resolve(window.htmlToImage) : reject(new Error("not loaded")));
+    s.onerror = () => { htmlToImageReady = null; reject(new Error("not loaded")); };
+    document.head.appendChild(s);
+  }));
+}
+// Photograph a full-width copy of the bill and wrap it in a one-page A4 PDF.
+async function makeBillPdf(b) {
+  const lib = await loadHtmlToImage();
+  const host = document.createElement("div");
+  host.className = "bill-capture";
+  host.setAttribute("aria-hidden", "true");
+  host.innerHTML = billHTML(b, billBiz(), houseName(b.house_id));
+  document.body.appendChild(host);
+  try {
+    const doc = host.firstElementChild;
+    await Promise.all([...doc.querySelectorAll("img")].map((im) => (im.complete ? 0 : new Promise((r) => { im.onload = im.onerror = r; }))));
+    const opts = { pixelRatio: 2, backgroundColor: "#ffffff", skipFonts: true, quality: 0.92 };
+    await lib.toJpeg(doc, opts); // Safari sometimes leaves images out of the first picture
+    const dataUrl = await lib.toJpeg(doc, opts);
+    const bytes = Uint8Array.from(atob(dataUrl.split(",")[1]), (ch) => ch.charCodeAt(0));
+    const w = Math.round(doc.offsetWidth * 2), h = Math.round(doc.offsetHeight * 2);
+    return new File([jpegToPdf(bytes, w, h)], billFileName(b), { type: "application/pdf" });
+  } finally {
+    host.remove();
+  }
+}
+const canShareFiles = () => {
+  try { return !!navigator.canShare?.({ files: [new File(["x"], "x.pdf", { type: "application/pdf" })] }); } catch { return false; }
+};
+$("billWaBtn").addEventListener("click", () => {
+  const open = $("waPanel").hidden;
+  show("waPanel", open);
+  $("billWaBtn").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  const b = state.billBooking;
+  $("waPhone").value = b.guest_phone || "";
+  $("waPdfLabel").textContent = canShareFiles() ? "Send the bill PDF" : "Download the bill PDF";
+  $("waHint").textContent = canShareFiles()
+    ? "Step 1 opens the guest's chat with a short message about the bill. Then come back and tap step 2, and choose the same chat in WhatsApp to attach the PDF."
+    : "Step 1 opens the guest's chat in WhatsApp with a short message about the bill. Step 2 downloads the PDF: drag it into that chat to send it.";
+  // Make the PDF now, so step 2 can share it straight away (phones only allow sharing right after a tap).
+  state.billPdf ||= makeBillPdf(b).catch((e) => { state.billPdf = null; throw e; });
+  state.billPdf.catch(() => {});
+  if (!b.guest_phone) $("waPhone").focus();
+});
+$("waChatBtn").addEventListener("click", async () => {
+  const b = state.billBooking;
+  const raw = $("waPhone").value.trim();
+  const phone = waPhone(raw);
+  if (!phone) { toast("Enter the guest's mobile number, e.g. 98765 43210"); $("waPhone").focus(); return; }
+  window.open(waLink(phone, billMessage(b, billBiz().legal_name, houseName(b.house_id))), "_blank", "noopener");
+  // Remember a new or corrected number on the booking (quietly; the chat opens either way).
+  if (raw !== (b.guest_phone || "")) {
+    const { error } = await sb.from("bookings").update({ guest_phone: raw }).eq("id", b.id);
+    if (!error) { b.guest_phone = raw; if (state.editing?.id === b.id) { state.editing.guest_phone = raw; $("guest_phone").value = raw; } }
+  }
+});
+$("waPdfBtn").addEventListener("click", async () => {
+  const btn = $("waPdfBtn");
+  btn.disabled = true;
+  try {
+    let file;
+    try { file = await (state.billPdf ||= makeBillPdf(state.billBooking)); }
+    catch { state.billPdf = null; toast(navigator.onLine ? "Couldn't make the PDF. Use Print / Save PDF instead." : "You're offline. Connect once to make PDFs, or use Print / Save PDF."); return; }
+    if (canShareFiles()) {
+      try { await navigator.share({ files: [file], title: file.name }); }
+      catch (e) { if (e?.name !== "AbortError") toast("Couldn't open sharing. Try again, or use Print / Save PDF."); }
+    } else {
+      const url = URL.createObjectURL(file);
+      const a = Object.assign(document.createElement("a"), { href: url, download: file.name });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(`${file.name} downloaded. Drag it into the WhatsApp chat.`);
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $("deleteBtn").addEventListener("click", async () => {
   const btn = $("deleteBtn");

@@ -15,7 +15,7 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - Summary, Register, New booking, Availability, Performance and Expenses are in a tab bar (on phones Availability and Performance are labelled Calendar and Stats) at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
-- **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
+- **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF. Tap **WhatsApp** on the bill to send it: step 1 opens the guest's chat with a short message (total, paid, balance), step 2 sends the bill as a PDF into that chat. The guest's number comes from the new Guest Phone field on the booking. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
 - **Booking diaries 2023–2026**: every stay from the old diaries is in the Register and on the Availability grid, marked *Diary*. They have room revenue only (no GST or payment details), so they count in bookings, nights and gross total but not in balances. Stays with no source written are kept as *Unknown* and left out of the direct-booking share. The diaries' monthly expenses and kitchen income are in Expenses and Profit.
 - **Closed dates**: set in Settings. A whole closure is hatched on the Availability grid; "closed to direct bookings" shows *OTA only*. The booking form warns before saving a booking on them.
 - **Settings** (owner only): rename apartments and pick their colours, change the Extra Bed, Firewood and Gas charges, set the bill details (business name, address, GSTIN, bill number prefix), give or remove staff access
@@ -116,6 +116,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
 | `008_expenses.sql` | Expenses: expense lines, monthly amounts and daily entries |
 | `007_monthly_history.sql` | The table for monthly nights and room revenue per apartment, for the Performance tab. The figures (January 2023 to September 2026, from Occ_x_Rev_data.xlsx) are loaded from a private file, not kept in this repo |
+| `010_guest_phone.sql` | Guest phone number on bookings, for sending the bill on WhatsApp |
 | `009_diary_import.sql` | Room for the 2023–2026 booking diaries: diary stays, kitchen income, closed dates. The diary data itself is loaded from two private files (not in this repo) |
 
 ## Updating the app
