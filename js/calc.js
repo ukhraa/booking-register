@@ -142,14 +142,18 @@ export function financialYear(iso) {
 }
 
 /** The four reporting periods for a given day, by check-in date. */
+// Every period runs up to today ("so far"); bookings checking in after today are
+// counted only under Upcoming, so no figure includes stays that haven't started.
+export const UPCOMING_END = "9999-12-31";
 export function reportPeriods(today) {
   const fy = financialYear(today);
-  const [mStart, mEnd] = monthRange(today.slice(0, 7));
+  const [mStart] = monthRange(today.slice(0, 7));
   return [
     { key: "day", start: today, end: today },
-    { key: "month", start: mStart, end: mEnd },
-    { key: "year", start: fy.start, end: fy.end, label: fy.label },
+    { key: "month", start: mStart, end: today },
+    { key: "year", start: fy.start, end: today, label: fy.label },
     { key: "ytd", start: `${today.slice(0, 4)}-01-01`, end: today }, // calendar year: 1 Jan to today
+    { key: "upcoming", start: addDays(today, 1), end: UPCOMING_END }, // checking in from tomorrow
   ];
 }
 

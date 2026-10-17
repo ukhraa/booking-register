@@ -42,7 +42,7 @@ test("financial year runs April to March", () => {
   assert.equal(financialYear("2026-01-05").start, "2025-04-01");
 });
 
-test("totals for today, month, FY and year to date (1 Jan to today)", () => {
+test("totals for today, month, FY and year to date so far, and upcoming", () => {
   const rows = [
     { check_in: "2026-10-16", nights: 2, gross_total: 10000, gst_amount: 450, advance_ota: 9450, paid_cash: 0, paid_upi: 550 },
     { check_in: "2026-10-03", nights: 3, gross_total: 14500, gst_amount: 600, advance_ota: 5000, paid_cash: 4000, paid_upi: 5500 },
@@ -53,15 +53,18 @@ test("totals for today, month, FY and year to date (1 Jan to today)", () => {
   ];
   const periods = reportPeriods("2026-10-16");
   assert.deepEqual(periods[3], { key: "ytd", start: "2026-01-01", end: "2026-10-16" });
-  assert.deepEqual(periodsSpan(periods), { start: "2026-01-01", end: "2027-03-31" });
-  const [day, month, year, ytd] = periods.map((p) => periodTotals(rows, p.start, p.end));
+  assert.deepEqual(periods[4], { key: "upcoming", start: "2026-10-17", end: "9999-12-31" });
+  assert.deepEqual(periodsSpan(periods), { start: "2026-01-01", end: "9999-12-31" });
+  const [day, month, year, ytd, upcoming] = periods.map((p) => periodTotals(rows, p.start, p.end));
   assert.equal(day.bookings, 1);
   assert.equal(day.afterOta, 550);
   assert.equal(month.bookings, 2);
   assert.equal(month.nights, 5);
   assert.equal(month.gross, 24500);
-  assert.equal(year.bookings, 4);                 // FY Apr 2026 - Mar 2027
-  assert.equal(year.gst, 1950);
+  assert.equal(year.bookings, 3);                 // FY so far: 1 Apr - 16 Oct 2026
+  assert.equal(year.gst, 1050);
+  assert.equal(upcoming.bookings, 1);             // checking in after today
+  assert.equal(upcoming.gst, 900);
   assert.equal(ytd.bookings, 4);                  // 1 Jan - 16 Oct 2026
   assert.equal(ytd.gross, 10000 + 14500 + 3000 + 7000);
   assert.equal(ytd.afterOta, 34500 - 14450);

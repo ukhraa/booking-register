@@ -154,10 +154,12 @@ code { font-family: var(--mono); font-size: .9em; background: var(--sunk); paddi
   .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; background: var(--sunk); border-radius: 10px; }
   .seg button { border: 0; background: transparent; border-radius: 7px; padding: 7px 4px; font-weight: 500; color: var(--muted); min-height: 36px; }
   .seg button[aria-selected="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+  #totalsSeg { grid-template-columns: 1fr 1.1fr .8fr .9fr 1.5fr; gap: 2px; }
+  #totalsSeg button { padding: 7px 2px; font-size: 14px; white-space: nowrap; }
   .totals-table th:first-child, .totals-table td:first-child { position: static; }
   .totals-table [data-col] { display: none; }
   .totals-table.show-0 [data-col="0"], .totals-table.show-1 [data-col="1"],
-  .totals-table.show-2 [data-col="2"], .totals-table.show-3 [data-col="3"] { display: table-cell; }
+  .totals-table.show-2 [data-col="2"], .totals-table.show-3 [data-col="3"], .totals-table.show-4 [data-col="4"] { display: table-cell; }
   .totals-table td { font-size: 15px; }
 }
 

@@ -264,9 +264,10 @@ function renderTotals() {
   const periods = reportPeriods(today);
   const heads = {
     day: ["Today", short(today)],
-    month: [new Date(`${today}T00:00:00`).toLocaleDateString("en-IN", { month: "long" }), today.slice(0, 4)],
-    year: [periods[2].label, "Apr – Mar"],
+    month: [new Date(`${today}T00:00:00`).toLocaleDateString("en-IN", { month: "long" }), `${short(periods[1].start)} – ${short(today)}`],
+    year: [periods[2].label, `${short(periods[2].start)} – ${short(today)}`],
     ytd: ["Year to date", `${short(periods[3].start)} – ${short(today)}`],
+    upcoming: ["Upcoming", `from ${short(periods[4].start)}`],
   };
   const totals = periods.map((p) => periodTotals(state.fyRows || [], p.start, p.end));
   const ROWS = [
@@ -291,7 +292,7 @@ function pickTotalsCol(i) {
   try { localStorage.setItem("totalsCol", String(i)); } catch {}
 }
 $("totalsSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-col]"); if (b) pickTotalsCol(b.dataset.col); });
-try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved || "")) pickTotalsCol(saved); } catch {}
+try { const saved = localStorage.getItem("totalsCol"); if (/^[0-4]$/.test(saved || "")) pickTotalsCol(saved); } catch {}
 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
