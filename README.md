@@ -10,8 +10,9 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Availability**: a month grid with apartments across and days down. Each stay is shaded in its apartment's colour and free nights are white. Tap a stay to open it, or tap a free square to book that apartment from that night. The grid also shows free apartments per day, booked nights per apartment, and any double bookings.
 - **Performance**: hotel performance metrics for a period you choose (this month, last month, last 3 months, year to date, this financial year, last 12 months), each compared with the period before. The metrics are occupancy, average daily rate (ADR), RevPAR, TRevPAR, direct-booking share, estimated OTA commission, average length of stay, a comparison of apartments, weekends vs weekdays, extras per stay and unpaid balances. Each box shows the figure, a trend line and whether you're on target. Tap a box for a chart, what the metric means, why it matters, how you compare with your target, and what to do. Targets and OTA commission rates are set in Settings. Months covered by the imported spreadsheet history (up to September 2026) use those figures; later months use bookings in the app. Occupancy, ADR and RevPAR also have a year-by-year chart.
 - **Settings** is the gear icon at the top (owners only).
+- **Expenses**: the **Daily** view is where anyone signed in logs kitchen, maintenance and other spending as it happens (amount, paid by, what for). The **Monthly** view (owners only) is a sheet with one amount per expense line (salaries, EB bill, rent, OTA commission and so on), with that month's daily entries added up into it automatically. It shows the month's revenue, expenses, profit and cost per night sold. You can copy last month's amounts, add new lines, and export to CSV.
 - **Light and Dark mode**: Light (white and blue) is the default. Tap the moon at the top to switch to Dark (black and blue), and the sun to switch back. Each phone or computer remembers its own choice.
-- Summary, Register, New booking, Availability and Performance are in a tab bar at the bottom of the screen.
+- Summary, Register, New booking, Availability, Performance and Expenses are in a tab bar (on phones Availability and Performance are labelled Calendar and Stats) at the bottom of the screen.
 - **Apartments**: which apartments are occupied tonight and who's arriving next
 - **Extra Bed, Firewood and Gas** are charged per day. Set one to Yes and the days fill in with the number of nights; change the days if the item was used for fewer (for example, firewood for 2 of 3 nights). The amount is the rate per day × days. Rates start at ₹500, ₹600 and ₹500 per day.
 - **Guest bill**: open a saved booking and tap **Print bill** to print it or save it as a PDF to share on WhatsApp. With a GSTIN set it's a GST Tax Invoice with CGST and SGST shown separately. Bill numbers like `TSR/26-27/0001` are given automatically and start again each April.
@@ -111,6 +112,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `004_bill_signature.sql` | Owner's signature on the guest bill |
 | `005_extra_days.sql` | Days for Extra Bed, Firewood and Gas (charged per day) |
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
+| `008_expenses.sql` | Expenses: expense lines, monthly amounts and daily entries |
 | `007_monthly_history.sql` | Monthly nights and room revenue per apartment, January 2023 to September 2026 (from Occ_x_Rev_data.xlsx), for the Performance tab |
 
 ## Updating the app

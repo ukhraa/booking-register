@@ -8,6 +8,7 @@ import {
 import { billHTML } from "./bill.js";
 import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor } from "./perf.js";
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
+import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -81,6 +82,7 @@ const state = {
   calStays: [],      // bookings touching that month
   perfRows: [],      // bookings for the Performance tab (about two years)
   history: [],       // monthly figures from before the app (monthly_history)
+  exp: { ready: false, cats: [], daily: {}, monthly: {}, view: "daily", day: todayISO(), ym: todayISO().slice(0, 7), dirty: false, discardArmed: false },
   settingsMap: {},   // every row of the settings table, key → number
   targets: { ...DEFAULT_TARGETS },
   perfMetrics: [],
@@ -286,9 +288,10 @@ try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadPerf()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadPerf(), loadExpenses()]);
   renderTotals();
   renderPerf();
+  renderExpenses();
   renderToday();
   renderRegister();
   renderCalendar();
@@ -303,6 +306,8 @@ function subscribeLive() {
     .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "houses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "daily_expenses" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "monthly_expenses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "business_profile" }, later)
     .subscribe();
   // Catch up when the phone wakes the app again.
@@ -663,6 +668,293 @@ document.addEventListener("focusin", (e) => {
 });
 document.addEventListener("scroll", hideTip, true);
 
+// ════════════════════════════ Expenses ════════════════════════════
+// Daily: anyone signed in adds what they spent today. Monthly (owners): one
+// amount per expense line, with that month's daily entries added up into it.
+const PAID = { cash: "Cash", upi: "UPI", bank: "Bank", card: "Card" };
+const ymOf = (iso) => iso.slice(0, 7);
+const shiftYm = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+const ymLong = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+
+async function loadDaily(ym) {
+  const [s, e] = monthRange(ym);
+  const { data, error } = await sb.from("daily_expenses").select("*").gte("spent_on", s).lte("spent_on", e).order("created_at");
+  if (!error) state.exp.daily[ym] = data;
+}
+async function loadMonthly(ym) {
+  if (!isOwner()) return;
+  const { data, error } = await sb.from("monthly_expenses").select("*").in("ym", [ym, shiftYm(ym, -1)]);
+  if (!error) for (const k of [ym, shiftYm(ym, -1)]) state.exp.monthly[k] = data.filter((r) => r.ym === k);
+}
+async function loadExpenses() {
+  const { data, error } = await sb.from("expense_categories").select("*").order("sort_order");
+  state.exp.ready = !error;
+  if (error) return;
+  state.exp.cats = data;
+  state.exp.daily = {};
+  const months = new Set([ymOf(state.exp.day), state.exp.ym]);
+  await Promise.all([...months].map(loadDaily).concat(loadMonthly(state.exp.ym)));
+}
+
+function renderExpenses() {
+  const x = state.exp;
+  show("expSetup", !x.ready);
+  show("expMonthlyTab", isOwner());
+  if (!isOwner()) x.view = "daily";
+  document.querySelectorAll("#expSeg [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === x.view)));
+  show("expDaily", x.ready && x.view === "daily");
+  show("expMonthly", x.ready && x.view === "monthly");
+  if (!x.ready) return;
+  renderDaily();
+  if (isOwner() && !x.dirty) renderMonthly();
+  else if (isOwner()) renderMonthCards();
+}
+
+function renderDaily() {
+  const x = state.exp;
+  const dailyCats = x.cats.filter((c) => c.daily && c.active !== false);
+  const keep = $("dCat").value;
+  $("dCat").innerHTML = dailyCats.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  if (keep && dailyCats.some((c) => String(c.id) === keep)) $("dCat").value = keep;
+  $("dDate").value = x.day;
+  $("dNext").disabled = x.day >= todayISO();
+  const monthRows = x.daily[ymOf(x.day)] || [];
+  const rows = monthRows.filter((r) => r.spent_on === x.day);
+  const total = rows.reduce((s, r) => s + num(r.amount), 0);
+  $("dTotal").innerHTML = rows.length ? `Day total <b>${formatINR(total)}</b>` : "";
+  const catName = (id) => x.cats.find((c) => c.id === id)?.name || "Expense";
+  const canEdit = (r) => isOwner() || r.created_by === state.profile?.id;
+  $("dList").innerHTML = rows.length
+    ? rows.map((r) => `<li>
+        <span class="exp-cat">${esc(catName(r.category_id))}</span>
+        <span class="exp-what">${esc(r.note || "")}<small>${PAID[r.paid_by] || ""}</small></span>
+        <b class="exp-amt">${formatINR(r.amount)}</b>
+        ${canEdit(r) ? `<button type="button" class="btn ghost small exp-del" data-del="${esc(r.id)}" aria-label="Delete this expense">Delete</button>` : ""}
+      </li>`).join("")
+    : `<li class="exp-empty">Nothing entered for ${formatDate(x.day)} yet.</li>`;
+  // This month so far, by line
+  const byCat = {};
+  for (const r of monthRows) byCat[r.category_id] = (byCat[r.category_id] || 0) + num(r.amount);
+  const parts = Object.entries(byCat).map(([id, v]) => `${catName(Number(id))} ${formatINR(v)}`);
+  $("dMonthSum").textContent = parts.length
+    ? `${ymLong(ymOf(x.day))} so far: ${parts.join(" · ")} · Total ${formatINR(monthRows.reduce((s, r) => s + num(r.amount), 0))}`
+    : "";
+}
+
+function monthRevenue(ym) {
+  const [s, e0] = monthRange(ym);
+  const today = todayISO();
+  if (s > today) return { revenue: 0, sold: 0 };
+  const e = e0 > today ? today : e0;
+  const m = computeMetrics(state.perfRows, state.houses, s, e, { history: state.history, today, commission: state.settingsMap });
+  return { revenue: m.roomRev + m.extrasRev, sold: m.sold, fromHistory: m.historyShare > 0 };
+}
+
+function currentSheet() {
+  const x = state.exp;
+  return monthSheet(x.cats, x.monthly[x.ym] || [], x.daily[x.ym] || [], x.ym);
+}
+
+function renderMonthCards() {
+  const x = state.exp;
+  // Use what's typed in the boxes, so the cards follow edits before saving.
+  const sheet = currentSheet();
+  let typed = 0;
+  for (const r of sheet.rows) {
+    const inp = document.querySelector(`#mTable [data-cat="${r.category.id}"]`);
+    typed += (inp ? num(inp.value) : r.monthly) + r.daily;
+  }
+  const rev = monthRevenue(x.ym);
+  const p = monthProfit(rev.revenue, typed, rev.sold);
+  const card = (label, value, sub, cls = "") => `<div class="exp-card ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+  $("mCards").innerHTML = [
+    card("Revenue", formatINR(Math.round(p.revenue)), rev.sold ? `${rev.sold} nights sold${rev.fromHistory ? " · from your history" : ""}` : "No nights yet"),
+    card("Expenses", formatINR(Math.round(p.expenses)), `${formatINR(Math.round(sheet.totals.daily))} from daily entries`),
+    card("Profit", formatINR(Math.round(p.profit)), p.revenue ? `${Math.round(p.margin)}% of revenue` : "–", p.profit < 0 ? "loss" : "gain"),
+    card("Cost per night sold", rev.sold ? formatINR(Math.round(p.costPerNight)) : "–", "Expenses ÷ nights sold"),
+  ].join("");
+}
+
+function renderMonthly() {
+  const x = state.exp;
+  $("mLabel").textContent = ymLong(x.ym);
+  const sheet = currentSheet();
+  const prev = new Map((x.monthly[shiftYm(x.ym, -1)] || []).map((r) => [r.category_id, num(r.amount)]));
+  $("mTable").innerHTML = `<thead><tr><th>Expense</th><th class="r">Monthly</th><th class="r">From daily</th><th class="r">Total</th></tr></thead>
+    <tbody>${sheet.rows.map((r) => `<tr>
+      <th scope="row">${esc(r.category.name)}${prev.get(r.category.id) ? `<small>Last month ${formatINR(prev.get(r.category.id))}</small>` : ""}</th>
+      <td class="r">${r.editable ? `<input type="number" min="0" step="any" inputmode="decimal" data-cat="${r.category.id}" value="${r.monthly || ""}" placeholder="0" aria-label="${esc(r.category.name)} for ${esc(ymLong(x.ym))}">` : `<span class="muted">daily only</span>`}</td>
+      <td class="r">${r.daily ? `${formatINR(r.daily)}<small>${r.entries} entr${r.entries === 1 ? "y" : "ies"}</small>` : `<span class="muted">–</span>`}</td>
+      <td class="r tot" data-tot="${r.category.id}">${r.total ? formatINR(r.total) : "–"}</td>
+    </tr>`).join("")}</tbody>
+    <tfoot><tr><th scope="row">Total</th><td class="r" id="mTotMonthly">${formatINR(sheet.totals.monthly)}</td><td class="r">${formatINR(sheet.totals.daily)}</td><td class="r" id="mTotAll">${formatINR(sheet.totals.total)}</td></tr></tfoot>`;
+  x.dirty = false;
+  x.discardArmed = false;
+  $("mDirty").textContent = "";
+  show("mErr", false);
+  renderMonthCards();
+}
+
+// Live totals while typing
+$("mTable").addEventListener("input", (e) => {
+  const inp = e.target.closest("[data-cat]");
+  if (!inp) return;
+  const x = state.exp;
+  x.dirty = true;
+  x.discardArmed = false;
+  $("mDirty").textContent = "Unsaved changes";
+  const sheet = currentSheet();
+  let monthlySum = 0;
+  for (const r of sheet.rows) {
+    const box = document.querySelector(`#mTable [data-cat="${r.category.id}"]`);
+    const mon = box ? num(box.value) : r.monthly;
+    monthlySum += mon;
+    const cell = document.querySelector(`#mTable [data-tot="${r.category.id}"]`);
+    if (cell) cell.textContent = mon + r.daily ? formatINR(mon + r.daily) : "–";
+  }
+  $("mTotMonthly").textContent = formatINR(monthlySum);
+  $("mTotAll").textContent = formatINR(monthlySum + sheet.totals.daily);
+  renderMonthCards();
+});
+
+$("mForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const x = state.exp;
+  show("mErr", false);
+  const saved = new Map((x.monthly[x.ym] || []).map((r) => [r.category_id, num(r.amount)]));
+  const upserts = [], deletes = [];
+  for (const inp of document.querySelectorAll("#mTable [data-cat]")) {
+    const id = Number(inp.dataset.cat);
+    const v = inp.value.trim() === "" ? 0 : Number(inp.value);
+    if (!(v >= 0)) { $("mErr").textContent = "Amounts can't be negative."; show("mErr"); inp.focus(); return; }
+    if (v === (saved.get(id) || 0)) continue;
+    if (v === 0) deletes.push(id); else upserts.push({ category_id: id, ym: x.ym, amount: v, updated_at: new Date().toISOString() });
+  }
+  if (!upserts.length && !deletes.length) { toast("Nothing to save"); return; }
+  $("mSave").disabled = true;
+  try {
+    if (upserts.length) { const { error } = await sb.from("monthly_expenses").upsert(upserts); if (error) throw error; }
+    if (deletes.length) { const { error } = await sb.from("monthly_expenses").delete().eq("ym", x.ym).in("category_id", deletes); if (error) throw error; }
+    x.dirty = false;
+    await loadMonthly(x.ym);
+    renderMonthly();
+    toast(`${ymLong(x.ym)} saved`);
+  } catch {
+    $("mErr").textContent = navigator.onLine ? "Couldn't save the month. Try again." : "You're offline, so nothing was saved. Try again when you're connected.";
+    show("mErr");
+  } finally {
+    $("mSave").disabled = false;
+  }
+});
+
+$("mCopy").addEventListener("click", () => {
+  const prev = new Map((state.exp.monthly[shiftYm(state.exp.ym, -1)] || []).map((r) => [r.category_id, num(r.amount)]));
+  if (!prev.size) { toast("Nothing saved for last month"); return; }
+  let n = 0;
+  for (const inp of document.querySelectorAll("#mTable [data-cat]")) {
+    const v = prev.get(Number(inp.dataset.cat));
+    if (v && inp.value.trim() === "") { inp.value = v; n++; }
+  }
+  if (n) { document.querySelector("#mTable [data-cat]").dispatchEvent(new Event("input", { bubbles: true })); toast(`Copied ${n} line${n === 1 ? "" : "s"} from last month. Check them, then Save month.`); }
+  else toast("Every line already has an amount");
+});
+
+$("mAddLine").addEventListener("click", async () => {
+  const name = $("mNewLine").value.trim();
+  show("mErr", false);
+  if (!name) { $("mNewLine").focus(); return; }
+  if (state.exp.cats.some((c) => c.name.toLowerCase() === name.toLowerCase())) { $("mErr").textContent = `There's already a line called ${name}.`; show("mErr"); return; }
+  if (state.exp.dirty) { $("mErr").textContent = "Save month first, then add the new line."; show("mErr"); return; }
+  const order = Math.max(0, ...state.exp.cats.filter((c) => c.monthly).map((c) => c.sort_order || 0)) + 1;
+  const { error } = await sb.from("expense_categories").insert({ name, monthly: true, daily: false, sort_order: Math.min(order, 49) });
+  if (error) { $("mErr").textContent = "Couldn't add the line. Try again."; show("mErr"); return; }
+  $("mNewLine").value = "";
+  toast(`Added ${name}`);
+  await loadExpenses();
+  renderExpenses();
+});
+
+$("mExport").addEventListener("click", () => {
+  const sheet = currentSheet();
+  const blob = new Blob([expensesCSV(sheet, ymLong(state.exp.ym))], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `expenses-${state.exp.ym}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+});
+
+async function goMonth(n) {
+  const x = state.exp;
+  if (x.dirty && !x.discardArmed) {
+    x.discardArmed = true;
+    $("mDirty").textContent = "Unsaved changes. Save month, or tap the arrow again to discard them.";
+    return;
+  }
+  x.dirty = false;
+  x.ym = shiftYm(x.ym, n);
+  await Promise.all([loadDaily(x.ym), loadMonthly(x.ym)]);
+  renderMonthly();
+}
+$("mPrev").addEventListener("click", () => goMonth(-1));
+$("mNext").addEventListener("click", () => goMonth(1));
+
+async function goDay(iso) {
+  const x = state.exp;
+  if (!iso) return;
+  x.day = iso > todayISO() ? todayISO() : iso;
+  if (!x.daily[ymOf(x.day)]) await loadDaily(ymOf(x.day));
+  renderDaily();
+}
+$("dPrev").addEventListener("click", () => goDay(addDays(state.exp.day, -1)));
+$("dNext").addEventListener("click", () => goDay(addDays(state.exp.day, 1)));
+$("dDate").addEventListener("change", () => goDay($("dDate").value));
+
+$("dForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("dErr", false);
+  const amount = Number($("dAmt").value);
+  const err = (m) => { $("dErr").textContent = m; show("dErr"); };
+  if (!$("dCat").value) return err("Choose what the expense was for.");
+  if (!(amount > 0)) { $("dAmt").focus(); return err("Enter the amount spent."); }
+  $("dAdd").disabled = true;
+  const row = { spent_on: state.exp.day, category_id: Number($("dCat").value), amount, paid_by: $("dPaid").value, note: $("dNote").value.trim() };
+  const { error } = await sb.from("daily_expenses").insert(row);
+  $("dAdd").disabled = false;
+  if (error) return err(navigator.onLine ? "Couldn't save. Try again." : "You're offline, so it wasn't saved. Try again when you're connected.");
+  $("dAmt").value = ""; $("dNote").value = "";
+  toast(`${formatINR(amount)} added`);
+  await loadDaily(ymOf(state.exp.day));
+  if (state.exp.ym === ymOf(state.exp.day) && !state.exp.dirty && isOwner()) renderMonthly();
+  renderDaily();
+  $("dAmt").focus();
+});
+
+$("dList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-del]");
+  if (!btn) return;
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed", "danger"); btn.textContent = "Tap to delete";
+    setTimeout(() => { btn.classList.remove("armed", "danger"); btn.textContent = "Delete"; }, 4000);
+    return;
+  }
+  const { error } = await sb.from("daily_expenses").delete().eq("id", btn.dataset.del);
+  if (error) { toast("Couldn't delete it"); return; }
+  toast("Deleted");
+  await loadDaily(ymOf(state.exp.day));
+  renderDaily();
+  if (state.exp.ym === ymOf(state.exp.day) && !state.exp.dirty && isOwner()) renderMonthly();
+});
+
+$("expSeg").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-view]");
+  if (!b) return;
+  state.exp.view = b.dataset.view;
+  if (state.exp.view === "monthly" && !state.exp.daily[state.exp.ym]) await loadDaily(state.exp.ym);
+  renderExpenses();
+});
+
 // ════════════════════════════ Tabs ════════════════════════════
 // New booking is also in the bar, but it opens the form instead of switching section.
 function showTab(name) {
@@ -670,7 +962,7 @@ function showTab(name) {
     if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   $("settingsBtn").setAttribute("aria-pressed", String(name === "settings"));
-  ["summary", "register", "houses", "perf", "settings"].forEach((t) => show(`tab-${t}`, t === name));
+  ["summary", "register", "houses", "perf", "exp", "settings"].forEach((t) => show(`tab-${t}`, t === name));
   if (name === "houses") scrollCalToToday();
   window.scrollTo({ top: 0 });
 }

@@ -155,6 +155,69 @@
         <p class="muted small">Nights are counted on the night they're stayed. Revenue is before GST. OTA commission is an estimate using the rates in Settings. Tap any box for what it means and what to do.</p>
       </section>
 
+      <!-- Expenses -->
+      <section id="tab-exp" class="stack" hidden>
+        <div class="row-between">
+          <h2>Expenses</h2>
+          <div class="seg seg-always" id="expSeg" role="tablist" aria-label="Expenses view">
+            <button type="button" role="tab" data-view="daily" aria-selected="true">Daily</button>
+            <button type="button" role="tab" data-view="monthly" aria-selected="false" id="expMonthlyTab">Monthly</button>
+          </div>
+        </div>
+        <p class="err" id="expSetup" hidden>Expenses aren't set up yet. Run supabase/migrations/008_expenses.sql in Supabase (SQL Editor), then reopen the app.</p>
+
+        <!-- Daily -->
+        <div id="expDaily" class="stack">
+          <div class="row-between">
+            <div class="monthnav">
+              <button class="btn small" id="dPrev" type="button" aria-label="Previous day">‹</button>
+              <input type="date" id="dDate" aria-label="Day">
+              <button class="btn small" id="dNext" type="button" aria-label="Next day">›</button>
+            </div>
+            <span class="day-total" id="dTotal"></span>
+          </div>
+          <form id="dForm" class="card exp-form" novalidate>
+            <div class="f"><label for="dCat">Expense</label><select id="dCat"></select></div>
+            <div class="f"><label for="dAmt">Amount (₹)</label><input id="dAmt" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></div>
+            <div class="f"><label for="dPaid">Paid by</label><select id="dPaid"><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="card">Card</option></select></div>
+            <div class="f exp-note"><label for="dNote">What for</label><input id="dNote" type="text" maxlength="140" placeholder="e.g. Vegetables, milk, plumber"></div>
+            <button class="btn primary" type="submit" id="dAdd">Add expense</button>
+            <p class="err wide" id="dErr" hidden></p>
+          </form>
+          <ul class="exp-list" id="dList"></ul>
+          <p class="muted small" id="dMonthSum"></p>
+        </div>
+
+        <!-- Monthly (owners) -->
+        <div id="expMonthly" class="stack" hidden>
+          <div class="row-between">
+            <div class="monthnav">
+              <button class="btn small" id="mPrev" type="button" aria-label="Previous month">‹</button>
+              <span class="month-label" id="mLabel"></span>
+              <button class="btn small" id="mNext" type="button" aria-label="Next month">›</button>
+            </div>
+            <div class="actions">
+              <button class="btn small" id="mCopy" type="button">Copy last month</button>
+              <button class="btn small" id="mExport" type="button">Export CSV</button>
+            </div>
+          </div>
+          <div class="exp-cards" id="mCards"></div>
+          <form id="mForm" class="card stack" novalidate>
+            <div class="tablewrap"><table class="exp-table" id="mTable"></table></div>
+            <div class="add-line">
+              <input id="mNewLine" type="text" maxlength="40" placeholder="New expense line, e.g. Gardener" aria-label="New expense line">
+              <button class="btn" type="button" id="mAddLine">Add line</button>
+            </div>
+            <p class="err" id="mErr" hidden></p>
+            <div class="row-between">
+              <span class="muted small" id="mDirty"></span>
+              <button class="btn primary" type="submit" id="mSave">Save month</button>
+            </div>
+          </form>
+          <p class="muted small">Daily entries are added up automatically. Revenue is rooms plus extras, before GST, for nights stayed in the month.</p>
+        </div>
+      </section>
+
       <!-- Settings (owner) -->
       <section id="tab-settings" class="stack" hidden>
         <h2>Apartments</h2>
@@ -244,11 +307,15 @@
       </button>
       <button class="tab" data-tab="houses">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4 M8 14h3 M13 14h3 M8 17h3"/></svg>
-        <span>Availability</span>
+        <span class="lbl-long">Availability</span><span class="lbl-short">Calendar</span>
       </button>
       <button class="tab" data-tab="perf">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-5 4 4 8-8 M15 8h5v5"/></svg>
-        <span>Performance</span>
+        <span class="lbl-long">Performance</span><span class="lbl-short">Stats</span>
+      </button>
+      <button class="tab" data-tab="exp">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1z M4 7l11-3v3 M16 13.5h1"/></svg>
+        <span>Expenses</span>
       </button>
     </nav>
   </div>
