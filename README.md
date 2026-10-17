@@ -115,7 +115,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `005_extra_days.sql` | Days for Extra Bed, Firewood and Gas (charged per day) |
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
 | `008_expenses.sql` | Expenses: expense lines, monthly amounts and daily entries |
-| `007_monthly_history.sql` | Monthly nights and room revenue per apartment, January 2023 to September 2026 (from Occ_x_Rev_data.xlsx), for the Performance tab |
+| `007_monthly_history.sql` | The table for monthly nights and room revenue per apartment, for the Performance tab. The figures (January 2023 to September 2026, from Occ_x_Rev_data.xlsx) are loaded from a private file, not kept in this repo |
 | `009_diary_import.sql` | Room for the 2023–2026 booking diaries: diary stays, kitchen income, closed dates. The diary data itself is loaded from two private files (not in this repo) |
 
 ## Updating the app
