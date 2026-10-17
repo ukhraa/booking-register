@@ -3,10 +3,10 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, BUSINESS_NAME, BOOKING_TYPES } from ".
 import {
   calcBooking, suggestGstPct, formatINR, formatDate, todayISO, monthRange, toCSV, num, dayNumber,
   extraAmount, extraRate, nightsBetween, financialYear, reportPeriods, periodTotals, periodsSpan,
-  addDays, availabilityGrid, occupancy,
+  addDays, availabilityGrid, occupancy, closureOn, closureClash,
 } from "./calc.js";
 import { billHTML } from "./bill.js";
-import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor, profitMetrics, monthlyProfitSeries } from "./perf.js";
+import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGETS, commissionKey, commissionFor, profitMetrics, monthlyProfitSeries, UNKNOWN_TYPE } from "./perf.js";
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
 
@@ -83,6 +83,8 @@ const state = {
   perfRows: [],      // bookings for the Performance tab (about two years)
   perfExpenses: null, // owners only: { cats, monthly, daily } for Profit
   history: [],       // monthly figures from before the app (monthly_history)
+  foodIncome: [],    // kitchen income per month from the old diaries (monthly_food_income)
+  closures: [],      // closed dates (closed_dates)
   exp: { ready: false, cats: [], daily: {}, monthly: {}, view: "daily", day: todayISO(), ym: todayISO().slice(0, 7), dirty: false, discardArmed: false },
   settingsMap: {},   // every row of the settings table, key → number
   targets: { ...DEFAULT_TARGETS },
@@ -219,7 +221,7 @@ async function loadBookings() {
   const pageSize = 1000;
   let rows = [];
   for (let from = 0; ; from += pageSize) {
-    let q = sb.from("bookings").select("*").order("serial", { ascending: false }).range(from, from + pageSize - 1);
+    let q = sb.from("bookings").select("*").order("check_in", { ascending: false }).order("serial", { ascending: false }).range(from, from + pageSize - 1);
     if (month && month !== "all") {
       const [start, end] = monthRange(month);
       q = q.gte("check_in", start).lte("check_in", end);
@@ -243,7 +245,7 @@ async function loadUpcoming() {
 // Every booking the Totals table needs: this financial year plus 1 Jan onwards (YTD).
 async function loadTotals() {
   const span = periodsSpan(reportPeriods(todayISO()));
-  const cols = "check_in,nights,gross_total,gst_amount,advance_ota,paid_cash,paid_upi";
+  const cols = "check_in,nights,gross_total,gst_amount,advance_ota,paid_cash,paid_upi,from_diary";
   const pageSize = 1000;
   let rows = [];
   for (let from = 0; ; from += pageSize) {
@@ -272,6 +274,11 @@ function renderTotals() {
     ["GST", "gst", true], ["Advance / OTA", "advance", true], ["Balance after OTA", "afterOta", true],
     ["Cash", "cash", true], ["UPI", "upi", true],
   ];
+  const diary = Math.max(...totals.map((t) => t.diary || 0));
+  $("totalsNote").textContent = diary
+    ? "Stays from the old booking diaries count in bookings, room nights and gross total (room revenue before GST). The diaries have no GST or payment details, so those stays are left out of Balance after OTA, Cash and UPI."
+    : "";
+  show("totalsNote", !!diary);
   $("totalsTable").innerHTML =
     `<thead><tr><th scope="col"><span class="sr">Figure</span></th>${periods.map((p, i) => `<th scope="col" data-col="${i}">${esc(heads[p.key][0])}<small>${esc(heads[p.key][1])}</small></th>`).join("")}</tr></thead>` +
     `<tbody>${ROWS.map(([label, k, money]) => `<tr class="${k === "gross" ? "key" : ""}"><th scope="row">${label}</th>${totals.map((t, i) => `<td data-col="${i}">${money ? formatINR(t[k]) : t[k]}</td>`).join("")}</tr>`).join("")}</tbody>`;
@@ -289,7 +296,7 @@ try { const saved = localStorage.getItem("totalsCol"); if (/^[0-3]$/.test(saved 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadPerf(), loadExpenses()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadClosures(), loadPerf(), loadExpenses()]);
   renderTotals();
   renderPerf();
   renderExpenses();
@@ -310,6 +317,7 @@ function subscribeLive() {
     .on("postgres_changes", { event: "*", schema: "public", table: "daily_expenses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_expenses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "business_profile" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "closed_dates" }, later)
     .subscribe();
   // Catch up when the phone wakes the app again.
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state.profile) later(); });
@@ -317,17 +325,18 @@ function subscribeLive() {
 
 // ════════════════════════════ Filters ════════════════════════════
 function buildStaticSelects() {
-  // Months: 18 back, 6 ahead
+  // Months: 6 ahead, back to January 2023 (the first month in the old diaries)
   const now = new Date();
   const opts = [];
-  for (let i = 6; i >= -18; i--) {
+  const back = (now.getFullYear() - 2023) * 12 + now.getMonth();
+  for (let i = 6; i >= -back; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     opts.push(`<option value="${ym}">${d.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</option>`);
   }
   $("fMonth").innerHTML = opts.join("") + `<option value="all">All months</option>`;
   $("fMonth").value = todayISO().slice(0, 7);
-  $("fType").innerHTML = `<option value="">All booking types</option>` + BOOKING_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
+  $("fType").innerHTML = `<option value="">All booking types</option>` + [...BOOKING_TYPES, UNKNOWN_TYPE].map((t) => `<option>${esc(t)}</option>`).join("");
   $("booking_type").innerHTML = BOOKING_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
 }
 
@@ -348,7 +357,7 @@ function visibleBookings() {
   return state.bookings.filter((b) => {
     if (h && String(b.house_id) !== h) return false;
     if (t && b.booking_type !== t) return false;
-    if (bal && (bal === "yes") !== b.total_balanced) return false;
+    if (bal && (b.from_diary || (bal === "yes") !== b.total_balanced)) return false; // diary stays have no payments
     if (q && !`${b.guest_name} ${b.bill_no} ${b.notes} ${houseName(b.house_id)} ${b.serial}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -371,6 +380,7 @@ const ALWAYS_SHOW = new Set(["tariff", "total_tariff", "gross_total", "total_bal
 $("thead").innerHTML = COLS.map(([l, , c], i) => `<th class="${c} ${i === 0 ? "sticky1" : ""}">${l}</th>`).join("");
 
 function balancePill(b) {
+  if (b.from_diary) return `<span class="pill diary" title="From the old booking diary: room revenue only, no payment details">Diary</span>`;
   if (b.total_balanced) return `<span class="pill yes">Yes</span>`;
   const diff = num(b.paid_cash) + num(b.paid_upi) - num(b.total_balance);
   return `<span class="pill no">${diff < 0 ? "Due " + formatINR(-diff) : "Over " + formatINR(diff)}</span>`;
@@ -478,6 +488,14 @@ function houseColour(h) {
   return byName ? byName[1] : COLOURS[((h?.id || 1) - 1) % COLOURS.length];
 }
 
+// Closed dates (migration 009; missing table = none). Small, so all of them are kept.
+async function loadClosures() {
+  const { data, error } = await sb.from("closed_dates").select("*").order("start_date").limit(2000);
+  state.closures = error ? [] : data;
+}
+const closureLabel = (c) => (c.direct_only ? "Closed for direct bookings" : "Closed");
+const closureWho = (c) => (c.house_id == null ? "all apartments" : houseName(c.house_id));
+
 async function loadCalendar() {
   const [start, end] = monthRange(state.calMonth);
   show("calLoading");
@@ -513,7 +531,14 @@ function renderCalendar() {
       const c = cells[h.id];
       const colour = houseColour(h);
       if (!c.stays.length) {
-        free++;
+        const shut = closureOn(state.closures, h.id, date);
+        if (!shut || shut.direct_only) free++; // closed to direct only: OTAs can still sell it
+        if (shut) {
+          const first = shut.start_date === date || date.endsWith("-01");
+          const label = first ? (shut.direct_only ? both("OTA only", "OTA") : both("Closed", "Shut")) : "";
+          const tip = `${closureLabel(shut)}: ${formatDate(shut.start_date)} → ${formatDate(shut.end_date)}${shut.note ? ` · ${shut.note}` : ""}`;
+          return `<td class="free ${shut.direct_only ? "nodirect" : "shut"}" title="${esc(tip)}"><button type="button" data-free="${h.id}" data-date="${date}" aria-label="${esc(h.name)}, ${formatDate(date)}: ${esc(tip)}. Book from this night">${label}</button></td>`;
+        }
         return `<td class="free"><button type="button" data-free="${h.id}" data-date="${date}" aria-label="Free: ${esc(h.name)}, ${formatDate(date)}. Book from this night"></button></td>`;
       }
       if (c.stays.length > 1) {
@@ -596,6 +621,9 @@ async function loadPerf() {
   // Monthly figures from before the app (table added by migration 007; missing = none).
   const { data: hist, error: hErr } = await sb.from("monthly_history").select("house_id,ym,nights_booked,nights_available,room_revenue").limit(5000);
   state.history = hErr ? [] : hist;
+  // Kitchen income from the old diaries (migration 009; missing = none).
+  const { data: food, error: fErr } = await sb.from("monthly_food_income").select("ym,amount").limit(1000);
+  state.foodIncome = fErr ? [] : food;
   // Owners: expenses for Profit and Cost per night sold (salaries are owner-only).
   state.perfExpenses = null;
   if (isOwner()) {
@@ -620,7 +648,7 @@ async function loadPerf() {
 function renderPerf() {
   const today = todayISO();
   const period = perfPeriod($("perfPeriod").value, today);
-  const opts = { commission: state.settingsMap, today, history: state.history };
+  const opts = { commission: state.settingsMap, today, history: state.history, foodIncome: state.foodIncome };
   const cur = computeMetrics(state.perfRows, state.houses, period.start, period.end, opts);
   const prev = computeMetrics(state.perfRows, state.houses, period.prev.start, period.prev.end, opts);
   // Trend charts: the 12 months ending with the period (FY shows its own April–March).
@@ -775,7 +803,7 @@ function monthRevenue(ym) {
   const today = todayISO();
   if (s > today) return { revenue: 0, sold: 0 };
   const e = e0 > today ? today : e0;
-  const m = computeMetrics(state.perfRows, state.houses, s, e, { history: state.history, today, commission: state.settingsMap });
+  const m = computeMetrics(state.perfRows, state.houses, s, e, { history: state.history, foodIncome: state.foodIncome, today, commission: state.settingsMap });
   return { revenue: m.roomRev + m.extrasRev, sold: m.sold, fromHistory: m.historyShare > 0 };
 }
 
@@ -1067,7 +1095,7 @@ function updatePreview() {
 }
 
 FIELDS.forEach((f) => $(f).addEventListener("input", () => {
-  if (["house_id", "check_in", "check_out"].includes(f)) { state.overlapAck = false; $("stayHint").dataset.overlap = ""; $("saveBtn").textContent = "Save booking"; }
+  if (["house_id", "check_in", "check_out", "booking_type"].includes(f)) { state.overlapAck = false; $("stayHint").dataset.overlap = ""; $("saveBtn").textContent = "Save booking"; }
   if (f === "check_in" || f === "check_out") followNights();
   updatePreview();
 }));
@@ -1187,8 +1215,12 @@ $("saveBtn").addEventListener("click", async () => {
   try {
     if (!state.overlapAck) {
       const clash = await findOverlap(b);
-      if (clash) {
-        const msg = `${houseName(b.house_id)} is already booked for #${clash.serial} ${clash.guest_name} (${formatDate(clash.check_in)} → ${formatDate(clash.check_out)}). Tap "Save anyway" if this is correct.`;
+      const shut = closureClash(state.closures, b);
+      if (clash || shut) {
+        const msgs = [];
+        if (clash) msgs.push(`${houseName(b.house_id)} is already booked for #${clash.serial} ${clash.guest_name} (${formatDate(clash.check_in)} → ${formatDate(clash.check_out)}).`);
+        if (shut) msgs.push(`${closureLabel(shut)}: ${closureWho(shut)}, ${formatDate(shut.start_date)} → ${formatDate(shut.end_date)}${shut.note ? ` (${shut.note})` : ""}.`);
+        const msg = `${msgs.join(" ")} Tap "Save anyway" if this is correct.`;
         $("stayHint").dataset.overlap = msg;
         state.overlapAck = true;
         btn.textContent = "Save anyway";
@@ -1309,6 +1341,8 @@ async function renderSettings() {
       `<div class="f"><label for="cm${i}">${esc(t)}</label><input id="cm${i}" data-ctype="${esc(t)}" type="number" min="0" max="50" step="0.5" inputmode="decimal" value="${commissionFor(t, state.settingsMap)}"></div>`).join("");
   }
 
+  renderClosedDates();
+
   if (!$("bizForm").contains(document.activeElement)) BIZ_FIELDS.forEach((k) => ($(`biz_${k}`).value = state.business[k]));
   if (!state.businessLoaded) {
     $("bizErr").textContent = "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then reopen the app.";
@@ -1329,6 +1363,45 @@ async function renderSettings() {
       <label><input type="checkbox" data-active ${p.active ? "checked" : ""}> Can sign in</label>
     </div>`).join("");
 }
+
+// ── Closed dates (Settings) ──
+function renderClosedDates() {
+  if (!$("closedForm").contains(document.activeElement)) {
+    const keep = $("cl_house").value;
+    $("cl_house").innerHTML = `<option value="">All apartments</option>` + state.houses.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join("");
+    $("cl_house").value = keep;
+  }
+  const today = todayISO();
+  const list = (state.closures || []).filter((c) => c.end_date > today);
+  $("closedList").innerHTML = list.length
+    ? list.map((c) => `<div class="staff-row"><div class="nm"><b>${esc(closureWho(c))}: ${formatDate(c.start_date)} → ${formatDate(c.end_date)}</b><small>${esc(closureLabel(c))}${c.note ? ` · ${esc(c.note)}` : ""}</small></div><button class="btn ghost small" type="button" data-unclose="${esc(c.id)}">Remove</button></div>`).join("")
+    : `<p class="muted small">No closed dates coming up.</p>`;
+}
+$("closedList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-unclose]");
+  if (!btn) return;
+  const c = (state.closures || []).find((x) => x.id === btn.dataset.unclose);
+  if (!c || !confirm(`Remove ${closureLabel(c).toLowerCase()} for ${closureWho(c)}, ${formatDate(c.start_date)} → ${formatDate(c.end_date)}?`)) return;
+  const { error } = await sb.from("closed_dates").delete().eq("id", c.id);
+  if (error) { toast("Couldn't remove it. Check your connection."); return; }
+  await loadClosures(); renderClosedDates(); renderCalendar();
+  toast("Closed dates removed");
+});
+$("closedForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("closedErr", false);
+  const err = (m) => { $("closedErr").textContent = m; show("closedErr"); };
+  const start = $("cl_start").value, end = $("cl_end").value;
+  if (!start || !end) return err("Enter the first night closed and the date it opens again.");
+  if (end <= start) return err("The open-again date must be after the first night closed.");
+  const row = { house_id: $("cl_house").value ? Number($("cl_house").value) : null, start_date: start, end_date: end, direct_only: $("cl_direct").checked, note: $("cl_note").value.trim() };
+  const { error } = await sb.from("closed_dates").insert(row);
+  if (error) return err(/closed_dates/.test(error.message) ? "Closed dates aren't set up yet. Run supabase/migrations/009_diary_import.sql in Supabase (SQL Editor)." : "Couldn't save. Check your connection.");
+  ["cl_start", "cl_end", "cl_note"].forEach((id) => ($(id).value = ""));
+  $("cl_direct").checked = false;
+  await loadClosures(); renderClosedDates(); renderCalendar();
+  toast("Closed dates added");
+});
 
 $("housesForm").addEventListener("submit", async (e) => {
   e.preventDefault();

@@ -12,7 +12,9 @@ import { num, r2, addDays, monthRange } from "./calc.js";
 export const DEFAULT_COMMISSION = {
   "Direct": 0, "Walk-in": 0, "Phone / WhatsApp": 0,
   "Airbnb": 15, "Booking.com": 18, "MakeMyTrip": 20, "Goibibo": 20, "Agoda": 18, "Other OTA": 18,
+  "Unknown": 0, // diary stays with no source written: no commission estimated, and not counted as direct
 };
+export const UNKNOWN_TYPE = "Unknown";
 export const DEFAULT_TARGETS = { occupancy: 65, adr: 0, direct: 40, alos: 2, margin: 30 }; // adr 0 = "use your 12-month average"; margin = profit % of revenue
 
 export const commissionKey = (type) => `commission_${String(type).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
@@ -44,8 +46,13 @@ const isWeekendNight = (iso) => {
  * month that has any history rows, nights, availability and room revenue come
  * from history (an apartment with no row that month counts as not open), and
  * app bookings on those nights are ignored. A period that cuts a history month
- * part-way gets a pro-rata share of it. Channel, commission, weekend/weekday,
- * extras and per-stay figures exist only for app bookings.
+ * part-way gets a pro-rata share of it. opts.foodIncome [{ym, amount}] adds the
+ * diaries' kitchen income to extras for history months.
+ * Channel, commission, weekend/weekday and length of stay come from the bookings
+ * in the app for every month, history months included (the old diaries were
+ * imported as bookings with from_diary = true). Diary stays have no extras or
+ * payment details, so extras per stay and unpaid balances leave them out.
+ * Direct share leaves out stays with no source ("Unknown").
  */
 export function computeMetrics(bookings, houses, start, end, opts = {}) {
   const days = daysBetweenIncl(start, end);
@@ -53,11 +60,12 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
   const hist = opts.history || [];
   const histMonths = new Set(hist.map((h) => h.ym));
   const histRow = new Map(hist.map((h) => [`${h.house_id}|${h.ym}`, h]));
+  const food = new Map((opts.foodIncome || []).map((f) => [f.ym, num(f.amount)]));
 
   const perHouse = Object.fromEntries(houses.map((h) => [h.id, { sold: 0, roomRev: 0, avail: 0 }]));
   let available = 0, appAvailable = 0, histAvailable = 0;
-  let sold = 0, roomRev = 0, appRoomRev = 0, extrasRev = 0, weekendSold = 0, weekdaySold = 0, commission = 0;
-  let weekendDays = 0, weekdayDays = 0;
+  let sold = 0, roomRev = 0, extrasRev = 0, weekendSold = 0, weekdaySold = 0, commission = 0;
+  let weekendDays = 0, weekdayDays = 0; // apartment-nights open on weekends / weekdays
 
   // Walk the period month by month.
   for (let mStart = `${start.slice(0, 7)}-01`; mStart <= end; mStart = addDays(monthRange(mStart.slice(0, 7))[1], 1)) {
@@ -73,32 +81,41 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
         const a = num(r.nights_available) * frac, b = num(r.nights_booked) * frac, rv = num(r.room_revenue) * frac;
         available += a; histAvailable += a; sold += b; roomRev += rv;
         perHouse[h.id].avail += a; perHouse[h.id].sold += b; perHouse[h.id].roomRev += rv;
+        const openShare = num(r.nights_available) / daysBetweenIncl(ms, me); // part-open months count in part
+        for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekendNight(d)) weekendDays += openShare; else weekdayDays += openShare;
       }
+      extrasRev += (food.get(ym) || 0) * frac;
     } else {
       available += H * nd; appAvailable += H * nd;
       for (const h of houses) perHouse[h.id].avail += nd;
-      for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekendNight(d)) weekendDays++; else weekdayDays++;
+      for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekendNight(d)) weekendDays += H; else weekdayDays += H;
     }
   }
 
   const channels = {};
+  let chRev = 0, unknownRev = 0; // room revenue of every booking counted in channels, and of those with no source
   for (const b of bookings) {
     const nights = Math.max(0, Math.round(num(b.nights)));
     if (!nights || !b.check_in) continue;
     const roomPerNight = num(b.tariff) / nights;
     const extrasPerNight = (num(b.food_bill) + num(b.extra_bed) + num(b.firewood) + num(b.gas)) / nights;
     const rate = commissionFor(b.booking_type, opts.commission) / 100;
+    const type = b.booking_type || "Other";
     for (let i = 0; i < nights; i++) {
       const night = addDays(b.check_in, i);
-      if (night < start || night > end || histMonths.has(night.slice(0, 7))) continue;
-      sold++;
-      roomRev += roomPerNight;
-      appRoomRev += roomPerNight;
-      extrasRev += extrasPerNight;
+      if (night < start || night > end) continue;
+      // History months: nights and revenue come from history; bookings still give the channel mix.
+      if (!histMonths.has(night.slice(0, 7))) {
+        sold++;
+        roomRev += roomPerNight;
+        extrasRev += extrasPerNight;
+        if (perHouse[b.house_id]) { perHouse[b.house_id].sold++; perHouse[b.house_id].roomRev += roomPerNight; }
+      }
+      chRev += roomPerNight;
+      if (type === UNKNOWN_TYPE) unknownRev += roomPerNight;
       commission += roomPerNight * rate;
       if (isWeekendNight(night)) weekendSold++; else weekdaySold++;
-      if (perHouse[b.house_id]) { perHouse[b.house_id].sold++; perHouse[b.house_id].roomRev += roomPerNight; }
-      const ch = (channels[b.booking_type || "Other"] ||= { nights: 0, roomRev: 0, commission: 0, rate: rate * 100 });
+      const ch = (channels[type] ||= { nights: 0, roomRev: 0, commission: 0, rate: rate * 100 });
       ch.nights++; ch.roomRev += roomPerNight; ch.commission += roomPerNight * rate;
     }
   }
@@ -106,19 +123,21 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
   // Per stay (app bookings that check in during the period)
   const stays = bookings.filter((b) => b.check_in >= start && b.check_in <= end && num(b.nights) > 0);
   const stayNights = stays.reduce((s, b) => s + num(b.nights), 0);
+  const appStays = stays.filter((b) => !b.from_diary); // diary stays have no extras or payments recorded
   const extras = { food: 0, bed: 0, firewood: 0, gas: 0 };
-  for (const b of stays) { extras.food += num(b.food_bill); extras.bed += num(b.extra_bed); extras.firewood += num(b.firewood); extras.gas += num(b.gas); }
-  const n = stays.length || 1;
+  for (const b of appStays) { extras.food += num(b.food_bill); extras.bed += num(b.extra_bed); extras.firewood += num(b.firewood); extras.gas += num(b.gas); }
+  const n = appStays.length || 1;
 
   // Money still owed on stays that have already checked out
   const today = opts.today || end;
-  const unpaid = stays
+  const unpaid = appStays
     .filter((b) => b.check_out <= today)
     .map((b) => ({ b, due: r2(num(b.total_balance) - num(b.paid_cash) - num(b.paid_upi)) }))
     .filter((x) => x.due >= 0.5)
     .sort((a, b) => b.due - a.due);
 
-  const directRev = Object.values(channels).filter((c) => c.rate === 0).reduce((s, c) => s + c.roomRev, 0);
+  const directRev = Object.entries(channels).filter(([t, c]) => c.rate === 0 && t !== UNKNOWN_TYPE).reduce((s, [, c]) => s + c.roomRev, 0);
+  const knownRev = chRev - unknownRev;
 
   const houseRows = houses.map((h) => {
     const p = perHouse[h.id];
@@ -138,21 +157,23 @@ export function computeMetrics(bookings, houses, start, end, opts = {}) {
     revpar: available ? r2(roomRev / available) : 0,
     trevpar: available ? r2((roomRev + extrasRev) / available) : 0,
     extrasShare: roomRev + extrasRev ? (extrasRev / (roomRev + extrasRev)) * 100 : 0,
-    // Channel figures only exist for app bookings, so their shares are of app room revenue.
+    // Channel figures come from bookings (diary + app), so their shares are of booking room revenue.
     appSold: weekendSold + weekdaySold,
-    channels: Object.entries(channels).map(([type, c]) => ({ type, ...c, roomRev: r2(c.roomRev), commission: r2(c.commission), share: appRoomRev ? (c.roomRev / appRoomRev) * 100 : 0 }))
+    channels: Object.entries(channels).map(([type, c]) => ({ type, ...c, roomRev: r2(c.roomRev), commission: r2(c.commission), share: chRev ? (c.roomRev / chRev) * 100 : 0, unknown: type === UNKNOWN_TYPE }))
       .sort((a, b) => b.roomRev - a.roomRev),
-    directShare: appRoomRev ? (directRev / appRoomRev) * 100 : 0,
+    directShare: knownRev ? (directRev / knownRev) * 100 : 0, // of revenue whose source is known
+    unknownShare: chRev ? (unknownRev / chRev) * 100 : 0,
     commission: r2(commission),
-    commissionPct: appRoomRev ? (commission / appRoomRev) * 100 : 0,
-    netRoomRev: r2(appRoomRev - commission),
+    commissionPct: chRev ? (commission / chRev) * 100 : 0,
+    netRoomRev: r2(chRev - commission),
     stays: stays.length,
     alos: stays.length ? stayNights / stays.length : 0,
-    extrasPerStay: stays.length ? r2((extras.food + extras.bed + extras.firewood + extras.gas) / n) : 0,
+    appStays: appStays.length,
+    extrasPerStay: appStays.length ? r2((extras.food + extras.bed + extras.firewood + extras.gas) / n) : 0,
     extrasBreakdown: { food: r2(extras.food / n), bed: r2(extras.bed / n), firewood: r2(extras.firewood / n), gas: r2(extras.gas / n) },
     houses: houseRows,
-    weekendOcc: weekendDays ? (weekendSold / (H * weekendDays)) * 100 : 0,
-    weekdayOcc: weekdayDays ? (weekdaySold / (H * weekdayDays)) * 100 : 0,
+    weekendOcc: weekendDays ? Math.min(100, (weekendSold / weekendDays) * 100) : 0,
+    weekdayOcc: weekdayDays ? Math.min(100, (weekdaySold / weekdayDays) * 100) : 0,
     unpaid, unpaidTotal: r2(unpaid.reduce((s, x) => s + x.due, 0)),
   };
 }

@@ -173,3 +173,34 @@ test("CSV escapes commas and quotes in notes", () => {
   assert.match(line, /"A ""B"", C"/);
   assert.match(line, /"UPI 500, cash 200"$/);
 });
+
+test("period totals: diary stays count in bookings and gross, not in the balance", async () => {
+  const { periodTotals } = await import("../js/calc.js");
+  const rows = [
+    { check_in: "2026-05-02", nights: 2, gross_total: 10000, gst_amount: 0, advance_ota: 0, paid_cash: 0, paid_upi: 0, from_diary: true },
+    { check_in: "2026-05-03", nights: 1, gross_total: 5250, gst_amount: 250, advance_ota: 1000, paid_cash: 0, paid_upi: 4250 },
+  ];
+  const t = periodTotals(rows, "2026-05-01", "2026-05-31");
+  assert.equal(t.bookings, 2);
+  assert.equal(t.nights, 3);
+  assert.equal(t.gross, 15250);
+  assert.equal(t.afterOta, 4250);
+  assert.equal(t.diary, 1);
+});
+
+test("closed dates: whole property or one apartment, direct-only applies to direct types", async () => {
+  const { closureOn, closureClash } = await import("../js/calc.js");
+  const closures = [
+    { house_id: null, start_date: "2026-11-06", end_date: "2026-11-09", direct_only: true, note: "No direct" },
+    { house_id: 2, start_date: "2026-12-01", end_date: "2026-12-03", direct_only: false, note: "Painting" },
+  ];
+  assert.equal(closureOn(closures, 4, "2026-11-08").note, "No direct");
+  assert.equal(closureOn(closures, 4, "2026-11-09"), null);        // end date is open again
+  assert.equal(closureOn(closures, 1, "2026-12-01"), null);        // other apartment
+  assert.equal(closureOn(closures, 2, "2026-12-02").note, "Painting");
+  const b = (type, house, ci, co) => ({ booking_type: type, house_id: house, check_in: ci, check_out: co });
+  assert.equal(closureClash(closures, b("Direct", 1, "2026-11-05", "2026-11-07")).note, "No direct");
+  assert.equal(closureClash(closures, b("Booking.com", 1, "2026-11-05", "2026-11-07")), null);
+  assert.equal(closureClash(closures, b("Direct", 1, "2026-11-04", "2026-11-06")), null); // leaves the day it starts
+  assert.equal(closureClash(closures, b("Airbnb", 2, "2026-12-02", "2026-12-04")).note, "Painting");
+});

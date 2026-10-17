@@ -94,6 +94,7 @@
             <button type="button" role="tab" data-col="3" aria-selected="false">YTD</button>
           </div>
           <div class="totalsbox"><table class="totals-table show-0" id="totalsTable"></table></div>
+          <p class="muted small" id="totalsNote" hidden></p>
         </section>
       </section>
 
@@ -254,6 +255,22 @@
           <div class="grid3" id="commissionInputs"></div>
           <p class="err" id="targetsErr" hidden></p>
           <div><button class="btn primary" type="submit">Save targets</button></div>
+        </form>
+
+        <h2>Closed dates</h2>
+        <form id="closedForm" class="card stack" novalidate>
+          <p class="muted">Dates an apartment, or the whole property, is closed, or closed to direct bookings only (OTAs can still sell them). They show on the Availability grid, and the booking form warns before a booking is saved on them.</p>
+          <div id="closedList" class="staff"></div>
+          <h3 class="subhead">Add closed dates</h3>
+          <div class="grid2">
+            <div class="f"><label for="cl_house">Apartment</label><select id="cl_house"></select></div>
+            <div class="f"><label for="cl_note">Reason (optional)</label><input id="cl_note" type="text" maxlength="80" placeholder="e.g. Painting, family stay"></div>
+            <div class="f"><label for="cl_start">From (first night closed)</label><input id="cl_start" type="date"></div>
+            <div class="f"><label for="cl_end">Open again from</label><input id="cl_end" type="date"></div>
+            <div class="f wide"><label class="check"><input id="cl_direct" type="checkbox"> Closed to direct bookings only (OTAs can still sell these nights)</label></div>
+          </div>
+          <p class="err" id="closedErr" hidden></p>
+          <div><button class="btn primary" type="submit">Add closed dates</button></div>
         </form>
 
         <h2>Bill details</h2>

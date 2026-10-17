@@ -191,6 +191,8 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill.yes { background: var(--ok-soft); color: var(--ok); }
 .pill.no { background: var(--bad-soft); color: var(--bad); }
+.pill.diary { background: var(--sunk); color: var(--muted); }
+label.check { display: flex; flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
 .empty { padding: 36px 16px; text-align: center; color: var(--muted); margin: 0; }
 
 /* apartments */
@@ -242,6 +244,10 @@ tfoot td { font-weight: 600; background: var(--sunk); border-bottom: 0; }
 .cal td.free button { display: block; width: 100%; height: 100%; min-height: 39px; border: 0; background: transparent; cursor: pointer; position: relative; }
 .cal td.free button:hover, .cal td.free button:focus-visible { background: var(--accent-soft); }
 .cal td.free button:hover::after { content: "+"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); font-size: 18px; }
+.cal td.free.shut { background: repeating-linear-gradient(135deg, var(--sunk) 0 5px, var(--surface) 5px 10px); }
+.cal td.free.nodirect { background: var(--sunk); }
+.cal td.free.shut button, .cal td.free.nodirect button { font-size: 11px; font-weight: 600; color: var(--muted); text-align: left; padding: 3px 6px; vertical-align: top; white-space: nowrap; overflow: hidden; }
+.cal td.free.shut button:hover::after, .cal td.free.nodirect button:hover::after { content: none; }
 
 .cal td.booked { background: var(--cbg); color: var(--cink); border-left: 3px solid var(--cedge); border-bottom-color: var(--cbg); cursor: pointer; padding: 4px 6px; overflow: hidden; }
 .cal td.booked.start { border-top: 2px solid var(--cedge); }

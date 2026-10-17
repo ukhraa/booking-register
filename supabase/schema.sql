@@ -367,7 +367,7 @@ create table if not exists public.daily_expenses (
 );
 create index if not exists daily_expenses_date_idx on public.daily_expenses (spent_on);
 
--- Starting expense lines, in your order. Kitchen and Other are daily only;
+-- Starting expense lines, in your order. Other is daily only; Kitchen (migration 009) is both;
 -- Maintenance is both (monthly amount + daily entries are added together).
 insert into public.expense_categories (name, monthly, daily, sort_order) values
   ('Salaries', true, false, 1),
@@ -401,7 +401,8 @@ insert into public.expense_categories (name, monthly, daily, sort_order) values
   ('JustDial', true, false, 29),
   ('Homecentre / Cloths', true, false, 30),
   ('Website Hosting', true, false, 31),
-  ('Kitchen', false, true, 50),
+  ('Tripadvisor', true, false, 32),
+  ('Kitchen', true, true, 50),
   ('Other', false, true, 52)
 on conflict (name) do nothing;
 
@@ -436,6 +437,47 @@ drop policy if exists "own or owner deletes daily" on public.daily_expenses;
 create policy "own or owner deletes daily" on public.daily_expenses
   for delete to authenticated using (public.is_owner() or created_by = auth.uid());
 
+-- Booking diaries 2023–2026 (migration 009): diary stays, kitchen income, closed dates.
+alter table public.bookings
+  add column if not exists from_diary boolean not null default false;
+
+create table if not exists public.monthly_food_income (
+  ym     text primary key check (ym ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  amount numeric(12,2) not null default 0 check (amount >= 0)
+);
+alter table public.monthly_food_income enable row level security;
+drop policy if exists "members read food income" on public.monthly_food_income;
+create policy "members read food income" on public.monthly_food_income
+  for select to authenticated using (public.is_active_member());
+drop policy if exists "owner edits food income" on public.monthly_food_income;
+create policy "owner edits food income" on public.monthly_food_income
+  for all to authenticated using (public.is_owner()) with check (public.is_owner());
+
+create table if not exists public.closed_dates (
+  id          uuid primary key default gen_random_uuid(),
+  house_id    smallint references public.houses (id) on delete cascade, -- empty = all apartments
+  start_date  date not null,
+  end_date    date not null,           -- like check-out: the first night it is open again
+  direct_only boolean not null default false, -- true = closed to direct bookings only (OTAs still sell)
+  note        text not null default '',
+  created_at  timestamptz not null default now(),
+  constraint closed_dates_order check (end_date > start_date)
+);
+create index if not exists closed_dates_dates_idx on public.closed_dates (start_date, end_date);
+alter table public.closed_dates enable row level security;
+drop policy if exists "members read closed dates" on public.closed_dates;
+create policy "members read closed dates" on public.closed_dates
+  for select to authenticated using (public.is_active_member());
+drop policy if exists "owner edits closed dates" on public.closed_dates;
+create policy "owner edits closed dates" on public.closed_dates
+  for all to authenticated using (public.is_owner()) with check (public.is_owner());
+
+-- (Databases set up before migration 009) Kitchen gets a monthly amount too (the diaries kept one total per month);
+-- daily kitchen entries still add to it. Tripadvisor was a line in the diaries.
+update public.expense_categories set monthly = true where name = 'Kitchen';
+insert into public.expense_categories (name, monthly, daily, sort_order) values ('Tripadvisor', true, false, 32)
+on conflict (name) do nothing;
+
 -- ─────────────────────────────────────────────────────────────
 -- Live updates: phones see each other's changes without refreshing.
 -- ─────────────────────────────────────────────────────────────
@@ -447,4 +489,5 @@ begin
   begin alter publication supabase_realtime add table public.daily_expenses;   exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.monthly_expenses; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.business_profile; exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.closed_dates;     exception when duplicate_object then null; end;
 end $$;

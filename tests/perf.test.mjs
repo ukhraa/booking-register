@@ -110,7 +110,10 @@ test("monthly history fills months before the app, app bookings take over after"
   assert.equal(jan.roomRev, 210000);
   assert.equal(Math.round(jan.adr), Math.round(210000 / 41));
   assert.equal(jan.historyShare, 1);
-  assert.equal(jan.channels.length, 0);   // no channel data in history
+  // Bookings in a history month still give the channel mix (nights/revenue stay from history)
+  assert.equal(jan.channels.length, 1);
+  assert.equal(jan.channels[0].type, "Direct");
+  assert.equal(jan.appSold, 2);
 
   const jun = computeMetrics(bookings, houses, "2026-06-01", "2026-06-30", { history });
   assert.equal(jun.available, 30);        // Venus closed: not counted as empty
@@ -167,4 +170,33 @@ test("profit only counts months with expenses entered, pro-rates monthly costs",
 
   const series = monthlyProfitSeries([], houses, "2026-09", opts, 2);
   assert.deepEqual(series.map((m) => [m.ym, m.hasData, m.profit]), [["2026-08", false, 0], ["2026-09", true, 55000]]);
+});
+
+test("diary bookings: channel mix in history months, Unknown left out of direct share, no extras or unpaid", async () => {
+  const { computeMetrics } = await import("../js/perf.js");
+  const houses = [{ id: 1, name: "Bhoomi" }, { id: 2, name: "Amazon" }];
+  const history = [
+    { house_id: 1, ym: "2025-03", nights_booked: 20, nights_available: 31, room_revenue: 120000 },
+    { house_id: 2, ym: "2025-03", nights_booked: 0, nights_available: 0, room_revenue: 0 }, // closed
+  ];
+  const foodIncome = [{ ym: "2025-03", amount: 31000 }];
+  const bookings = [
+    { house_id: 1, booking_type: "Direct", check_in: "2025-03-07", check_out: "2025-03-09", nights: 2, tariff: 12000, from_diary: true, total_balance: 12000 },
+    { house_id: 1, booking_type: "Booking.com", check_in: "2025-03-10", check_out: "2025-03-11", nights: 1, tariff: 6000, from_diary: true, total_balance: 6000 },
+    { house_id: 1, booking_type: "Unknown", check_in: "2025-03-12", check_out: "2025-03-13", nights: 1, tariff: 6000, from_diary: true, total_balance: 6000 },
+  ];
+  const m = computeMetrics(bookings, houses, "2025-03-01", "2025-03-31", { history, foodIncome, today: "2025-04-30" });
+  assert.equal(m.sold, 20);                       // nights from history
+  assert.equal(m.roomRev, 120000);
+  assert.equal(m.extrasRev, 31000);               // kitchen income from the diaries
+  assert.equal(Math.round(m.directShare), 67);    // 12000 of 18000 known-source revenue
+  assert.equal(Math.round(m.unknownShare), 25);   // 6000 of 24000
+  assert.equal(m.channels.find((c) => c.type === "Unknown").unknown, true);
+  assert.equal(m.commission, 1080);               // 18% of Booking.com only
+  assert.equal(m.stays, 3);
+  assert.equal(m.alos, 4 / 3);
+  assert.equal(m.appStays, 0);                    // diary stays: no extras or payments recorded
+  assert.equal(m.unpaid.length, 0);
+  // Weekend nights: Fri 7 + Sat 8 Mar sold; Amazon closed, so only Bhoomi's 9 Fri/Sat nights are open
+  assert.equal(Math.round(m.weekendOcc), 22);
 });

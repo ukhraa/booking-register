@@ -166,6 +166,8 @@ export const TOTAL_FIELDS = ["bookings", "nights", "gross", "gst", "advance", "a
 /** Totals of saved bookings whose check-in falls in [start, end]. */
 export function periodTotals(bookings, start, end) {
   const t = Object.fromEntries(TOTAL_FIELDS.map((k) => [k, 0]));
+  let diaryGross = 0;
+  t.diary = 0;
   for (const b of bookings) {
     if (!b.check_in || b.check_in < start || b.check_in > end) continue;
     t.bookings += 1;
@@ -175,10 +177,30 @@ export function periodTotals(bookings, start, end) {
     t.advance += num(b.advance_ota);
     t.cash += num(b.paid_cash);
     t.upi += num(b.paid_upi);
+    // Old-diary stays have room revenue only: no payment split, so they're left out of the balance.
+    if (b.from_diary) { t.diary += 1; diaryGross += num(b.gross_total); }
   }
-  t.afterOta = t.gross - t.advance;
+  t.afterOta = t.gross - diaryGross - t.advance;
   for (const k of TOTAL_FIELDS) t[k] = r2(t[k]);
   return t;
+}
+
+/** Booking types that come to you directly (no OTA). Closed-for-direct dates only apply to these. */
+export const DIRECT_TYPES = ["Direct", "Walk-in", "Phone / WhatsApp"];
+
+/**
+ * The closed-dates entry covering an apartment on a night, if any.
+ * closures: [{house_id (null = all apartments), start_date, end_date (first open night), direct_only, note}]
+ */
+export function closureOn(closures, houseId, date) {
+  return (closures || []).find((c) => (c.house_id == null || c.house_id === houseId) && c.start_date <= date && date < c.end_date) || null;
+}
+
+/** The first closed-dates entry a booking runs into (direct-only entries count only for direct booking types). */
+export function closureClash(closures, b) {
+  const direct = DIRECT_TYPES.includes(b.booking_type);
+  return (closures || []).find((c) =>
+    (c.house_id == null || c.house_id === b.house_id) && c.start_date < b.check_out && c.end_date > b.check_in && (!c.direct_only || direct)) || null;
 }
 
 /** YYYY-MM-DD plus n days. */

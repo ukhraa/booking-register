@@ -34,7 +34,7 @@ export function buildMetrics(ctx) {
   const { cur, prev, series, years = [], period, targets, houses, houseColour, profit } = ctx;
   // Figures the spreadsheet history doesn't have: only from bookings entered in the app.
   const histUsed = cur.historyShare > 0;
-  const appNote = histUsed ? (cur.appSold || cur.stays ? "From bookings entered in the app only" : "Starts once bookings are entered in the app") : null;
+  const appNote = histUsed ? (cur.appSold || cur.stays ? "From the bookings in the app" : "Starts once bookings are entered in the app") : null;
   const yearCols = (key, fmt, opts = {}) => years.length > 1 ? columns(years.map((y, i) => ({
     label: y.partial ? `${y.year}*` : String(y.year), value: y[key], current: i === years.length - 1,
     valueLabel: fmt(y[key]), tip: `${y.year}${y.partial ? " so far" : ""}: ${fmt(y[key])}`,
@@ -63,9 +63,9 @@ export function buildMetrics(ctx) {
   const weakest = [...openHouses].sort((a, b) => a.occ - b.occ)[0];
   const strongest = [...openHouses].sort((a, b) => b.occ - a.occ)[0];
   const aptStatus = !has ? "none" : weakest && weakest.occ < houseAvg * 0.5 ? "bad" : weakest && weakest.occ < houseAvg * 0.7 ? "warn" : "good";
-  const extrasStatus = !cur.stays ? "none" : prev.stays ? (cur.extrasPerStay >= prev.extrasPerStay ? "good" : cur.extrasPerStay >= prev.extrasPerStay * 0.85 ? "warn" : "bad") : "info";
+  const extrasStatus = !cur.appStays ? "none" : prev.appStays ? (cur.extrasPerStay >= prev.extrasPerStay ? "good" : cur.extrasPerStay >= prev.extrasPerStay * 0.85 ? "warn" : "bad") : "info";
   const trevStatus = !has ? "none" : prev.sold ? (cur.trevpar >= prev.trevpar ? "good" : cur.trevpar >= prev.trevpar * 0.9 ? "warn" : "bad") : "info";
-  const unpaidStatus = cur.stays ? (cur.unpaid.length ? "bad" : "good") : "none";
+  const unpaidStatus = cur.appStays ? (cur.unpaid.length ? "bad" : "good") : "none";
 
   const tipMonth = (m, txt) => `${monthLong(m.ym)}${m.partial ? " (so far)" : ""}: ${txt}`;
 
@@ -150,13 +150,13 @@ export function buildMetrics(ctx) {
     },
     {
       key: "direct", appOnly: true, label: "Direct bookings", value: has ? pct(cur.directShare) : "–", status: directStatus,
-      sub: "Share of room revenue with no OTA commission",
+      sub: cur.unknownShare >= 0.5 ? `Share of room revenue with no OTA commission · ${pct(cur.unknownShare)} had no source written, left out` : "Share of room revenue with no OTA commission",
       delta: delta(cur.directShare, prev.appSold ? prev.directShare : null, "pts", true, pl),
       spark: spark(months.map((m) => m.directShare), { target: targets.direct }),
-      chart: () => hbars(cur.channels.map((c) => ({ label: c.type, value: c.share, display: `${pct(c.share)} · ${formatINR(Math.round(c.roomRev))}`, color: c.rate > 0 ? "--s2" : "--s1", tip: `${c.type}: ${pct(c.share)} of room revenue, ${c.nights} nights` })),
-        { max: 100, legend: [{ label: "Direct (no commission)", color: "--s1" }, { label: "OTA", color: "--s2" }] }),
+      chart: () => hbars(cur.channels.map((c) => ({ label: c.unknown ? "No source written" : c.type, value: c.share, display: `${pct(c.share)} · ${formatINR(Math.round(c.roomRev))}`, color: c.unknown ? "--muted" : c.rate > 0 ? "--s2" : "--s1", tip: `${c.unknown ? "No source written" : c.type}: ${pct(c.share)} of room revenue, ${c.nights} nights` })),
+        { max: 100, legend: [{ label: "Direct (no commission)", color: "--s1" }, { label: "OTA", color: "--s2" }, ...(cur.unknownShare > 0 ? [{ label: "No source written", color: "--muted" }] : [])] }),
       table: () => simpleTable(["Channel", "Nights", "Room revenue", "Share"], cur.channels.map((c) => [c.type, c.nights, formatINR(Math.round(c.roomRev)), pct(c.share)])),
-      what: "The share of room revenue from bookings that came to you directly.",
+      what: "The share of room revenue from bookings that came to you directly. Stays with no source written (in the old diaries) are left out, so they don't count for or against you.",
       why: "Direct guests cost no commission and are easier to bring back. Every booking moved from an OTA to direct keeps 15–20% more.",
       youVs: has ? `You: <b>${pct(cur.directShare)}</b> · Target: <b>${targets.direct}%</b>` : "",
       tips: {
@@ -240,9 +240,9 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "extras", appOnly: true, label: "Extras per stay", value: cur.stays ? formatINR(Math.round(cur.extrasPerStay)) : "–", status: extrasStatus,
+      key: "extras", appOnly: true, diaryless: true, label: "Extras per stay", value: cur.appStays ? formatINR(Math.round(cur.extrasPerStay)) : "–", status: extrasStatus,
       sub: "Food, extra bed, firewood and gas per booking",
-      delta: delta(cur.extrasPerStay, prev.stays ? prev.extrasPerStay : null, "money", true, pl),
+      delta: delta(cur.extrasPerStay, prev.appStays ? prev.extrasPerStay : null, "money", true, pl),
       spark: spark(months.map((m) => m.extrasPerStay)),
       chart: () => hbars([
         ["Food", cur.extrasBreakdown.food], ["Extra bed", cur.extrasBreakdown.bed], ["Firewood", cur.extrasBreakdown.firewood], ["Gas", cur.extrasBreakdown.gas],
@@ -250,7 +250,7 @@ export function buildMetrics(ctx) {
       table: () => simpleTable(["Extra", "Average per stay"], [["Food", formatINR(Math.round(cur.extrasBreakdown.food))], ["Extra bed", formatINR(Math.round(cur.extrasBreakdown.bed))], ["Firewood", formatINR(Math.round(cur.extrasBreakdown.firewood))], ["Gas", formatINR(Math.round(cur.extrasBreakdown.gas))]]),
       what: "Average spent on food, extra beds, firewood and gas per booking.",
       why: "Extras are income from guests you already have, and they make stays more memorable.",
-      youVs: cur.stays ? `This period: <b>${formatINR(Math.round(cur.extrasPerStay))}</b> · ${esc(pl)}: <b>${prev.stays ? formatINR(Math.round(prev.extrasPerStay)) : "–"}</b>` : "",
+      youVs: cur.appStays ? `This period: <b>${formatINR(Math.round(cur.extrasPerStay))}</b> · ${esc(pl)}: <b>${prev.appStays ? formatINR(Math.round(prev.extrasPerStay)) : "–"}</b>` : "",
       tips: {
         good: ["Guests are spending more on extras."], info: ["Offer a dinner or bonfire package when guests book."],
         warn: ["Slightly down. Offer dinner and firewood when guests arrive."],
@@ -259,7 +259,7 @@ export function buildMetrics(ctx) {
       },
     },
     {
-      key: "unpaid", appOnly: true, label: "Unpaid balances", value: cur.stays ? formatINR(Math.round(cur.unpaidTotal)) : "–", status: unpaidStatus,
+      key: "unpaid", appOnly: true, diaryless: true, label: "Unpaid balances", value: cur.appStays ? formatINR(Math.round(cur.unpaidTotal)) : "–", status: unpaidStatus,
       sub: cur.unpaid.length ? `${cur.unpaid.length} stay${cur.unpaid.length === 1 ? "" : "s"} checked out with money due` : "Stays checked out and fully paid",
       delta: "",
       spark: "",
@@ -267,7 +267,7 @@ export function buildMetrics(ctx) {
       table: () => "",
       what: "Money still owed on stays that have already checked out.",
       why: "This is revenue you've earned but not collected. The longer it's left, the harder it is to collect.",
-      youVs: cur.stays ? `Owed: <b>${formatINR(Math.round(cur.unpaidTotal))}</b> · Should be <b>₹0</b>` : "",
+      youVs: cur.appStays ? `Owed: <b>${formatINR(Math.round(cur.unpaidTotal))}</b> · Should be <b>₹0</b>` : "",
       tips: {
         good: ["All collected."],
         bad: ["Tap a stay to open it, then record the payment or follow up with the guest.", "If it was paid but not recorded, add the cash or UPI amount so the books match."],
@@ -276,13 +276,17 @@ export function buildMetrics(ctx) {
     },
   ];
   if (profit) list.push(...profitCards(profit, targets, pl, monthLabel, monthLong));
-  if (appNote) for (const m of list) if (m.appOnly) {
-    m.note = "The spreadsheet history only has nights and room revenue, so this uses bookings entered in the app.";
+  // Diary stays (2023 to mid-October 2026) have no extras or payment details.
+  if (cur.stays > cur.appStays) for (const m of list) if (m.diaryless) {
+    m.note = "Stays copied from the old booking diaries have no extras or payment details, so this uses only bookings entered in the app.";
+    if (!cur.appStays) { m.value = "–"; m.status = "none"; m.delta = ""; m.sub = "Starts with bookings entered in the app"; }
+  }
+  if (appNote) for (const m of list) if (m.appOnly && !m.diaryless) {
+    m.note = "The spreadsheet history only has nights and room revenue, so this uses the bookings in the app, which include stays copied from the old booking diaries.";
     if (!(cur.appSold || cur.stays)) { m.value = "–"; m.status = "none"; m.delta = ""; m.sub = appNote; }
-    else m.sub = `${m.sub} · ${appNote.toLowerCase()}`;
   }
   const trev = list.find((m) => m.key === "trevpar");
-  if (histUsed && trev) trev.note = "Extras (food, extra beds, firewood, gas) aren't in the spreadsheet history, so for those months this equals RevPAR.";
+  if (histUsed && trev) trev.note = "For months from the old diaries, extras are kitchen income only (extra beds, firewood and gas weren't recorded separately).";
   return list;
 }
 
