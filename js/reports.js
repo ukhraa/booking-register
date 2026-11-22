@@ -1,0 +1,105 @@
+// Monthly reports (pure, tested in tests/reports.test.mjs):
+//  • GST report for the accountant: bills by invoice date (check-out), GST by rate.
+//  • Guest register: who stayed, with ID details, for police / Form C records.
+import { calcBooking, splitGst, formatDate, num, monthRange } from "./calc.js";
+
+const r2 = (n) => Math.round(n * 100) / 100;
+const csvCell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const csvRow = (cells) => cells.map(csvCell).join(",");
+
+/**
+ * GST report for one month. A bill belongs to the month of its check-out date
+ * (the invoice date). Stays copied from the old diaries are left out.
+ * GST in the app is charged on the room tariff; food and extras have no GST line.
+ */
+export function gstReport(bookings, ym, today = null) {
+  const [start, end] = monthRange(ym);
+  // Stays that haven't checked out yet have no bill yet: counted separately, not in the totals.
+  const notYet = bookings.filter((b) => !b.from_diary && today && b.check_out > today && b.check_out >= start && b.check_out <= end);
+  const inMonth = bookings.filter((b) => !b.from_diary && b.check_out >= start && b.check_out <= end && !notYet.includes(b))
+    .sort((a, b) => (a.check_out + (a.bill_no || "")).localeCompare(b.check_out + (b.bill_no || "")));
+  const byRate = new Map();
+  const lines = inMonth.map((b) => {
+    const c = calcBooking(b);
+    const { cgst, sgst } = splitGst(c.gstAmount);
+    const rate = num(b.gst_pct);
+    const other = r2(c.grossTotal - c.totalTariff); // food + extras
+    const line = { id: b.id, bill_no: b.bill_no || "", date: b.check_out, guest: b.guest_name, house_id: b.house_id,
+      booking_type: b.booking_type, nights: c.nights, rate, taxable: num(b.tariff), cgst, sgst, gst: c.gstAmount, other, total: c.grossTotal };
+    const g = byRate.get(rate) || { rate, bills: 0, taxable: 0, cgst: 0, sgst: 0, gst: 0, other: 0, total: 0 };
+    g.bills++; g.taxable += line.taxable; g.cgst += cgst; g.sgst += sgst; g.gst += c.gstAmount; g.other += other; g.total += c.grossTotal;
+    byRate.set(rate, g);
+    return line;
+  });
+  const rates = [...byRate.values()].sort((a, b) => a.rate - b.rate)
+    .map((g) => ({ ...g, taxable: r2(g.taxable), cgst: r2(g.cgst), sgst: r2(g.sgst), gst: r2(g.gst), other: r2(g.other), total: r2(g.total) }));
+  const sum = (k) => r2(rates.reduce((s, g) => s + g[k], 0));
+  return {
+    ym, start, end, lines, rates,
+    totals: { bills: lines.length, taxable: sum("taxable"), cgst: sum("cgst"), sgst: sum("sgst"), gst: sum("gst"), other: sum("other"), total: sum("total") },
+    missingBillNo: lines.filter((l) => !l.bill_no),
+    notCheckedOut: notYet.length,
+  };
+}
+
+export function gstCSV(rep, houseName, business = {}) {
+  const out = [
+    csvRow([`GST report ${rep.ym}`, business.trade_name || business.legal_name || "", business.gstin ? `GSTIN ${business.gstin}` : ""]),
+    "",
+    csvRow(["Summary by GST rate"]),
+    csvRow(["GST rate %", "Bills", "Taxable value (room)", "CGST", "SGST", "Total GST", "Food & extras (no GST)", "Invoice value"]),
+    ...rep.rates.map((g) => csvRow([g.rate, g.bills, g.taxable, g.cgst, g.sgst, g.gst, g.other, g.total])),
+    csvRow(["Total", rep.totals.bills, rep.totals.taxable, rep.totals.cgst, rep.totals.sgst, rep.totals.gst, rep.totals.other, rep.totals.total]),
+    "",
+    csvRow(["Bills"]),
+    csvRow(["Bill no.", "Date", "Guest", "Apartment", "Booking type", "Nights", "GST rate %", "Taxable value", "CGST", "SGST", "Food & extras", "Invoice value"]),
+    ...rep.lines.map((l) => csvRow([l.bill_no || "(no bill no.)", formatDate(l.date), l.guest, houseName(l.house_id), l.booking_type, l.nights, l.rate, l.taxable, l.cgst, l.sgst, l.other, l.total])),
+  ];
+  return out.join("\r\n");
+}
+
+export const ID_TYPES = ["Aadhaar", "Passport", "Driving licence", "Voter ID", "Other"];
+
+/** Indian guests: nationality left empty or "India(n)". */
+export const isForeign = (b) => !!b.nationality && !/^india(n)?$/i.test(b.nationality.trim());
+
+/** Guests staying at any time in the month (check-in on or before month end, check-out after month start). */
+export function guestRegister(bookings, ym) {
+  const [start, end] = monthRange(ym);
+  return bookings
+    .filter((b) => b.check_in <= end && b.check_out > start)
+    .sort((a, b) => (a.check_in + a.house_id).localeCompare(b.check_in + b.house_id))
+    .map((b) => ({
+      id: b.id, check_in: b.check_in, check_out: b.check_out, house_id: b.house_id, guest: b.guest_name,
+      phone: b.guest_phone || "", address: b.guest_address || "", adults: num(b.adults), children: num(b.children),
+      nationality: b.nationality || "Indian", foreign: isForeign(b),
+      id_type: b.id_type || "", id_number: b.id_number || "",
+      visa_no: b.visa_no || "", visa_expiry: b.visa_expiry || "", arrived_india: b.arrived_india || "",
+      missing: [!b.id_number && "ID", !b.guest_address && "address", !(num(b.adults) + num(b.children)) && "guests",
+                isForeign(b) && !b.visa_no && "visa"].filter(Boolean),
+      from_diary: !!b.from_diary,
+    }));
+}
+
+export function guestRegisterCSV(rows, houseName) {
+  return [
+    csvRow(["Check-in", "Check-out", "Apartment", "Guest", "Phone", "Address", "Adults", "Children", "Nationality", "ID type", "ID number", "Visa no.", "Visa valid until", "Arrived in India"]),
+    ...rows.map((r) => csvRow([formatDate(r.check_in), formatDate(r.check_out), houseName(r.house_id), r.guest, r.phone, r.address,
+      r.adults, r.children, r.nationality, r.id_type, r.id_number, r.visa_no, r.visa_expiry ? formatDate(r.visa_expiry) : "", r.arrived_india ? formatDate(r.arrived_india) : ""])),
+  ].join("\r\n");
+}
+
+/**
+ * Past stays of the same guest, for the "returning guest" hint on the booking form.
+ * Matches on the phone number's last 10 digits, or on the full name (case and spacing ignored).
+ */
+export function pastStays(bookings, { phone = "", name = "", excludeId = null, before = null } = {}) {
+  const ph = String(phone).replace(/\D/g, "").slice(-10);
+  const nm = String(name).trim().toLowerCase().replace(/\s+/g, " ");
+  if (ph.length < 10 && nm.length < 4) return [];
+  return bookings
+    .filter((b) => b.id !== excludeId && (!before || b.check_in < before))
+    .filter((b) => (ph.length === 10 && String(b.guest_phone || "").replace(/\D/g, "").slice(-10) === ph)
+      || (nm.length >= 4 && String(b.guest_name || "").trim().toLowerCase().replace(/\s+/g, " ") === nm))
+    .sort((a, b) => b.check_in.localeCompare(a.check_in));
+}

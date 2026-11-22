@@ -10,6 +10,9 @@ import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGET
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
 import { waPhone, prettyPhone, billMessage, waLink, billFileName, jpegToPdf } from "./whatsapp.js";
+import { gstReport, gstCSV, guestRegister, guestRegisterCSV, pastStays, ID_TYPES, isForeign } from "./reports.js";
+import { parseAxisRoomsEmail, otaBookingRow } from "./ota-email.js";
+import { calendarIssues, staleLinks } from "./ota-calendar.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -110,6 +113,8 @@ const state = {
   sigDraft: null,    // signature picked in Settings but not saved yet ("" = removed)
 };
 const BIZ_FIELDS = ["legal_name", "address", "phone", "email", "gstin", "state", "invoice_prefix", "footer_note"];
+// Added by migration 011 (bill name, logo, bank and UPI details): only sent once the database has them.
+const BIZ_FIELDS2 = ["trade_name", "bank_account_name", "bank_account_no", "bank_ifsc", "bank_name", "upi_id"];
 const EXTRAS = ["extra_bed", "firewood", "gas"];
 const EXTRA_LABEL = { extra_bed: "Extra Bed", firewood: "Firewood", gas: "Gas" };
 const isOwner = () => state.profile?.role === "owner";
@@ -171,6 +176,7 @@ async function enterApp(session) {
   state.profile = profile;
   $("whoName").textContent = `${profile.full_name || profile.email} · ${profile.role === "owner" ? "Owner" : "Staff"}`;
   show("settingsBtn", isOwner());
+  show("gstBtn", isOwner());
   show("loginView", false);
   show("appView");
   buildStaticSelects();
@@ -213,7 +219,8 @@ async function loadRates() {
 async function loadBusiness() {
   const { data, error } = await sb.from("business_profile").select("*").eq("id", 1).maybeSingle();
   state.businessLoaded = !error && !!data;
-  if (state.businessLoaded) [...BIZ_FIELDS, "signature"].forEach((k) => (state.business[k] = data[k] ?? ""));
+  if (state.businessLoaded) [...BIZ_FIELDS, ...BIZ_FIELDS2, "signature", "logo"].forEach((k) => (state.business[k] = data[k] ?? ""));
+  state.bizV2 = state.businessLoaded && "upi_id" in data;
 }
 
 async function loadBookings() {
@@ -238,7 +245,7 @@ async function loadBookings() {
 
 async function loadUpcoming() {
   const { data, error } = await sb.from("bookings")
-    .select("id,serial,house_id,guest_name,check_in,check_out,booking_type")
+    .select("id,serial,house_id,guest_name,check_in,check_out,booking_type,updated_at")
     .gte("check_out", todayISO()).order("check_in").limit(300); // includes today's check-outs
   if (!error) state.upcoming = data;
 }
@@ -298,11 +305,12 @@ try { const saved = localStorage.getItem("totalsCol"); if (/^[0-4]$/.test(saved 
 async function reloadAll() {
   await Promise.all([loadHouses(), loadRates(), loadBusiness()]);
   buildHouseSelects();
-  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadClosures(), loadPerf(), loadExpenses()]);
+  await Promise.all([loadBookings(), loadUpcoming(), loadTotals(), loadCalendar(), loadClosures(), loadPerf(), loadExpenses(), loadOta()]);
   renderTotals();
   renderPerf();
   renderExpenses();
   renderToday();
+  renderAttention();
   renderRegister();
   renderCalendar();
   if (isOwner()) renderSettings();
@@ -320,6 +328,8 @@ function subscribeLive() {
     .on("postgres_changes", { event: "*", schema: "public", table: "monthly_expenses" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "business_profile" }, later)
     .on("postgres_changes", { event: "*", schema: "public", table: "closed_dates" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ota_inbox" }, later)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ota_calendar" }, later)
     .subscribe();
   // Catch up when the phone wakes the app again.
   document.addEventListener("visibilitychange", () => { if (!document.hidden && state.profile) later(); });
@@ -447,6 +457,324 @@ $("exportBtn").addEventListener("click", () => {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+});
+
+// ════════════════════════════ Booking emails and calendar check ════════════════════════════
+// The Google helper puts AxisRooms emails in ota_inbox. Whoever has the app open reads
+// new ones: a clean new booking is added straight away; anything else (a clash, an
+// unknown apartment, a change or a cancellation) waits under "Needs a look" on Summary.
+// ota_ref is unique, so two phones reading the same email can't add it twice.
+async function loadOta() {
+  const [inbox, links, cal] = await Promise.all([
+    sb.from("ota_inbox").select("*").in("status", ["new", "review"]).order("received_at").limit(100),
+    sb.from("ical_links").select("*"),
+    sb.from("ota_calendar").select("*").gte("end_date", todayISO()).limit(5000),
+  ]);
+  state.otaReady = !inbox.error; // false until migration 011 is run
+  state.inbox = inbox.error ? [] : inbox.data;
+  state.icalLinks = links.error ? [] : links.data;
+  state.otaCal = cal.error ? [] : cal.data;
+  const { data: last } = state.otaReady ? await sb.from("ota_inbox").select("received_at").order("received_at", { ascending: false }).limit(1) : { data: null };
+  state.lastEmail = last?.[0]?.received_at || null;
+  if (state.inbox.some((r) => r.status === "new")) processInbox();
+}
+
+let processing = false;
+const triedInbox = new Set(); // read each email at most once per session, even if marking it fails
+async function processInbox() {
+  if (processing) return;
+  const todo = state.inbox.filter((r) => r.status === "new" && !triedInbox.has(r.id));
+  if (!todo.length) return;
+  processing = true;
+  let added = 0;
+  try {
+    for (const item of todo) {
+      triedInbox.add(item.id);
+      const p = parseAxisRoomsEmail(item.subject, item.body);
+      const mark = (patch) => sb.from("ota_inbox").update({ handled_at: new Date().toISOString(), ...patch }).eq("id", item.id).eq("status", "new");
+      if (!p) { await mark({ status: /axisrooms|booking|cancel/i.test(item.subject) ? "review" : "ignored", kind: "other", note: "Couldn't read this email." }); continue; }
+      const { data: existing } = await sb.from("bookings").select("id,serial,house_id,guest_name,check_in,check_out,tariff").eq("ota_ref", p.ref).limit(1);
+      const ex = existing?.[0];
+      if (p.kind === "booking") {
+        if (ex) { await mark({ status: "done", kind: p.kind, ota_ref: p.ref, booking_id: ex.id, note: "Already in the app." }); continue; }
+        const { row, problem } = otaBookingRow(p, state.houses);
+        const clash = row.house_id ? await findOverlap(row, null) : null;
+        if (problem || clash) {
+          await mark({ status: "review", kind: p.kind, ota_ref: p.ref,
+            note: problem || `Clashes with #${clash.serial} ${clash.guest_name} (${formatDate(clash.check_in)} → ${formatDate(clash.check_out)}).` });
+          continue;
+        }
+        const { data: ins, error } = await sb.from("bookings").insert(row).select("id").limit(1);
+        if (error) {
+          if (error.code === "23505") await mark({ status: "done", kind: p.kind, ota_ref: p.ref, note: "Already in the app." });
+          else await mark({ status: "review", kind: p.kind, ota_ref: p.ref, note: "Couldn't add it automatically." });
+          continue;
+        }
+        added++;
+        await mark({ status: "done", kind: p.kind, ota_ref: p.ref, booking_id: ins?.[0]?.id ?? null, note: "Added." });
+      } else if (p.kind === "cancellation") {
+        if (!ex) await mark({ status: "done", kind: p.kind, ota_ref: p.ref, note: "Cancelled; it wasn't in the app." });
+        else await mark({ status: "review", kind: p.kind, ota_ref: p.ref, booking_id: ex.id, note: `Cancelled on ${p.channel}.` });
+      } else {
+        await mark({ status: "review", kind: p.kind, ota_ref: p.ref, booking_id: ex?.id ?? null, note: ex ? `Changed on ${p.channel}.` : `Changed on ${p.channel}; it wasn't in the app yet.` });
+      }
+    }
+  } finally {
+    processing = false;
+  }
+  if (added) toast(`${added} new booking${added === 1 ? "" : "s"} added from booking emails`);
+  reloadAll();
+}
+
+function renderAttention() {
+  const items = [];
+  for (const it of state.inbox.filter((r) => r.status === "review")) {
+    const p = parseAxisRoomsEmail(it.subject, it.body);
+    const what = !p ? esc(it.subject)
+      : p.checkIn ? `${p.channel} · ${esc(p.guest || "guest")} · ${formatDate(p.checkIn)} → ${formatDate(p.checkOut)}`
+      : `${p.channel} booking ${esc(p.ref)}`;
+    const title = { booking: "New booking to check", modification: "Booking changed", cancellation: "Booking cancelled", other: "Booking email to check" }[it.kind] || "Booking email to check";
+    let acts = "";
+    if (p && it.kind === "booking") {
+      const { row } = otaBookingRow(p, state.houses);
+      acts = `<select data-house aria-label="Apartment">${state.houses.map((h) => `<option value="${h.id}" ${h.id === row.house_id ? "selected" : ""}>${esc(h.name)}</option>`).join("")}</select>
+        <button class="btn small primary" data-ota="add" data-id="${it.id}">Add booking</button>`;
+    } else if (p && it.kind === "modification" && it.booking_id) {
+      acts = `<button class="btn small primary" data-ota="apply" data-id="${it.id}">Apply changes</button><button class="btn small" data-ota="open" data-id="${it.id}">Open booking</button>`;
+    } else if (p && it.kind === "modification") {
+      acts = `<button class="btn small primary" data-ota="add" data-id="${it.id}">Add booking</button>`;
+    } else if (it.kind === "cancellation" && it.booking_id) {
+      acts = isOwner() ? `<button class="btn small danger" data-ota="remove" data-id="${it.id}">Remove booking</button>` : `<small class="muted">Ask an owner to remove it.</small>`;
+      acts += `<button class="btn small" data-ota="open" data-id="${it.id}">Open booking</button>`;
+    }
+    acts += `<button class="btn small ghost" data-ota="dismiss" data-id="${it.id}">Done</button>`;
+    items.push(`<div class="attn-item"><div class="what"><b>${title}</b>${what}<br><small>${esc(it.note)} Email ${new Date(it.received_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.</small></div><div class="acts">${acts}</div></div>`);
+  }
+  for (const c of calendarIssues({ bookings: state.upcoming || [], events: state.otaCal || [], links: state.icalLinks || [], today: todayISO() })) {
+    const nights = dayNumber(c.end) - dayNumber(c.start);
+    const text = c.type === "open"
+      ? `<b>${esc(c.source)} still shows ${esc(houseName(c.house_id))} free</b>${formatDate(c.start)} → ${formatDate(c.end)} (${nights} night${nights === 1 ? "" : "s"}) is booked in the app. Close those nights on ${esc(c.source)} or check AxisRooms, or someone could book them twice.`
+      : `<b>${esc(c.source)} has a booking the app doesn't</b>${esc(houseName(c.house_id))}, ${formatDate(c.start)} → ${formatDate(c.end)} (${nights} night${nights === 1 ? "" : "s"}). Add it in the app, or check whether it was cancelled.`;
+    items.push(`<div class="attn-item"><div class="what">${text}</div>${c.type === "missing" ? `<div class="acts"><button class="btn small" data-cal-add="${c.house_id}|${c.start}|${c.end}|${esc(c.source)}">Add booking</button></div>` : ""}</div>`);
+  }
+  if (isOwner()) for (const l of staleLinks(state.icalLinks || [])) {
+    items.push(`<div class="attn-item"><div class="what"><b>Can't read the ${esc(l.source)} calendar for ${esc(houseName(l.house_id))}</b><small>${l.last_error ? esc(l.last_error) : l.last_fetched ? `Last read ${new Date(l.last_fetched).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.` : "Not read yet: check that the Google helper is set up."}</small></div></div>`);
+  }
+  $("attnList").innerHTML = items.join("");
+  show("attnBox", items.length > 0);
+}
+
+$("attnList").addEventListener("click", async (e) => {
+  const calAdd = e.target.closest("[data-cal-add]");
+  if (calAdd) {
+    const [house, start, end, source] = calAdd.dataset.calAdd.split("|");
+    openSheet(null, { house_id: Number(house), check_in: start, check_out: end });
+    if (BOOKING_TYPES.includes(source)) $("booking_type").value = source;
+    return;
+  }
+  const btn = e.target.closest("[data-ota]");
+  if (!btn) return;
+  const it = state.inbox.find((r) => r.id === btn.dataset.id);
+  if (!it) return;
+  const done = async (patch = {}) => {
+    await sb.from("ota_inbox").update({ status: "done", handled_at: new Date().toISOString(), handled_by: state.profile?.id ?? null, ...patch }).eq("id", it.id);
+    await loadOta(); renderAttention();
+  };
+  const p = parseAxisRoomsEmail(it.subject, it.body);
+  const action = btn.dataset.ota;
+  btn.disabled = true;
+  try {
+    if (action === "dismiss") return done();
+    if (action === "open") {
+      const { data } = await sb.from("bookings").select("*").eq("id", it.booking_id).limit(1);
+      if (data?.[0]) openSheet(data[0]); else toast("That booking isn't in the app any more.");
+      return;
+    }
+    if (action === "add") {
+      const { row } = otaBookingRow(p, state.houses);
+      row.house_id = Number(btn.closest(".attn-item").querySelector("[data-house]")?.value || row.house_id);
+      if (!row.house_id) return toast("Choose the apartment first.");
+      const { data, error } = await sb.from("bookings").insert(row).select("id").limit(1);
+      if (error) return toast(error.code === "23505" ? "That booking is already in the app." : "Couldn't add it. Check your connection.");
+      toast("Booking added");
+      return done({ booking_id: data?.[0]?.id ?? null, note: "Added by hand." });
+    }
+    if (action === "apply") {
+      const { row } = otaBookingRow(p, state.houses);
+      const patch = { check_in: row.check_in, check_out: row.check_out, tariff: row.tariff, gst_pct: row.gst_pct, advance_ota: row.advance_ota,
+        ota_commission: row.ota_commission, adults: row.adults, children: row.children };
+      if (row.house_id) patch.house_id = row.house_id;
+      const { error } = await sb.from("bookings").update(patch).eq("id", it.booking_id);
+      if (error) return toast("Couldn't update the booking. Check your connection.");
+      toast("Booking updated");
+      return done({ note: "Changes applied." });
+    }
+    if (action === "remove") {
+      if (!confirm("Remove this cancelled booking from the app?")) return;
+      const { error } = await sb.from("bookings").delete().eq("id", it.booking_id);
+      if (error) return toast("Couldn't remove it. Only owners can delete bookings.");
+      toast("Booking removed");
+      return done({ booking_id: null, note: "Booking removed." });
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Settings: helper key, helper status, calendar links ──
+function renderHelper() {
+  const ready = state.otaReady;
+  show("helperCard", !!ready);
+  if (!ready) return;
+  const links = state.icalLinks || [];
+  const lines = [];
+  lines.push(state.lastEmail ? `Last booking email: ${new Date(state.lastEmail).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : "No booking emails yet.");
+  const fetched = links.map((l) => l.last_fetched).filter(Boolean).sort().pop();
+  if (links.length) lines.push(fetched ? `Calendars last checked: ${new Date(fetched).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : "Calendars not checked yet.");
+  const bad = staleLinks(links).filter((l) => l.last_error);
+  $("helperStatus").innerHTML = lines.map((t) => `<span>${esc(t)}</span>`).join("") + bad.map((l) => `<span class="bad">${esc(houseName(l.house_id))} · ${esc(l.source)}: ${esc(l.last_error)}</span>`).join("");
+  if (!$("icalList").contains(document.activeElement)) {
+    const url = (h, s) => links.find((l) => l.house_id === h && l.source === s)?.url || "";
+    $("icalList").innerHTML = state.houses.map((h) => `<div class="ical-row" data-house="${h.id}">
+      <b>${esc(h.name)}</b>
+      <input type="url" inputmode="url" autocomplete="off" data-src="Airbnb" placeholder="Airbnb link (https://www.airbnb…/calendar/ical/…)" value="${esc(url(h.id, "Airbnb"))}" aria-label="${esc(h.name)} Airbnb calendar link">
+      <input type="url" inputmode="url" autocomplete="off" data-src="Booking.com" placeholder="Booking.com link (https://admin.booking.com/…)" value="${esc(url(h.id, "Booking.com"))}" aria-label="${esc(h.name)} Booking.com calendar link">
+    </div>`).join("");
+  }
+}
+$("icalSave").addEventListener("click", async () => {
+  show("icalErr", false);
+  const ups = [], dels = [];
+  for (const row of $("icalList").querySelectorAll(".ical-row")) {
+    for (const inp of row.querySelectorAll("input")) {
+      const v = inp.value.trim(), house_id = Number(row.dataset.house), source = inp.dataset.src;
+      if (!v) dels.push({ house_id, source });
+      else if (!/^https:\/\/\S+$/.test(v)) { $("icalErr").textContent = "Each link must start with https://"; show("icalErr"); inp.focus(); return; }
+      else ups.push({ house_id, source, url: v });
+    }
+  }
+  if (ups.length) {
+    const { error } = await sb.from("ical_links").upsert(ups, { onConflict: "house_id,source" });
+    if (error) { $("icalErr").textContent = "Couldn't save the links. Check your connection."; show("icalErr"); return; }
+  }
+  for (const d of dels) await sb.from("ical_links").delete().eq("house_id", d.house_id).eq("source", d.source);
+  document.activeElement?.blur();
+  toast("Calendar links saved. The helper reads them within the hour.");
+  await loadOta(); renderHelper();
+});
+$("helperKeyBtn").addEventListener("click", async () => {
+  if (!confirm("Make a new helper key? The Google script will need the new key; the old one stops working.")) return;
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  const key = [...bytes].map((x) => x.toString(16).padStart(2, "0")).join("");
+  const { error } = await sb.from("helper_key").upsert({ id: 1, key, created_at: new Date().toISOString() });
+  if (error) { toast("Couldn't make the key. Only owners can do this."); return; }
+  $("helperKey").textContent = key;
+  show("helperKeyBox");
+});
+$("helperKeyCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("helperKey").textContent); toast("Key copied"); } catch { toast("Select the key and copy it"); }
+});
+
+// ════════════════════════════ Monthly reports ════════════════════════════
+// GST report (owners, by check-out month) and guest register (everyone).
+const lastMonthYM = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
+const ymLabel = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+const inrPlain = (n) => num(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+let report = null; // { kind: "gst" | "guests", ym, rows, data }
+
+async function openReport(kind, ym) {
+  const opts = [...$("fMonth").options].filter((o) => o.value !== "all");
+  $("repMonth").innerHTML = opts.map((o) => `<option value="${o.value}">${esc(o.textContent)}</option>`).join("");
+  ym ||= kind === "gst" ? lastMonthYM() : ($("fMonth").value !== "all" ? $("fMonth").value : todayISO().slice(0, 7));
+  $("repMonth").value = ym;
+  report = { kind, ym };
+  $("repDoc").innerHTML = `<article class="rep-doc"><p class="muted">Loading…</p></article>`;
+  show("reportView");
+  titleBeforeBill = document.title;
+  await loadReport();
+}
+async function loadReport() {
+  const { kind, ym } = report;
+  const [start, end] = monthRange(ym);
+  let q = sb.from("bookings").select("*");
+  q = kind === "gst" ? q.gte("check_out", start).lte("check_out", end) : q.lte("check_in", end).gt("check_out", start);
+  const { data, error } = await q.order("check_in").limit(2000);
+  if (report?.ym !== ym || report?.kind !== kind) return; // month changed while loading
+  if (error) { $("repDoc").innerHTML = `<article class="rep-doc"><p class="warn">Couldn't load the bookings. Check your connection and try again.</p></article>`; return; }
+  report.rows = data;
+  report.data = kind === "gst" ? gstReport(data, ym, todayISO()) : guestRegister(data, ym);
+  document.title = `${kind === "gst" ? "GST report" : "Guest register"} ${ym}`;
+  $("repDoc").innerHTML = kind === "gst" ? gstHTML(report.data) : guestsHTML(report.data);
+}
+function gstHTML(r) {
+  const biz = billBiz();
+  const t = r.totals;
+  return `<article class="rep-doc">
+    <header><h1 id="repTitle">GST report · ${ymLabel(r.ym)}</h1>
+      <p class="muted">${esc(biz.trade_name)}${biz.gstin ? ` · GSTIN ${esc(biz.gstin)}` : ""} · bills dated ${formatDate(r.start)} to ${formatDate(r.end)} (by check-out date)</p></header>
+    ${r.notCheckedOut ? `<p class="muted">${r.notCheckedOut} more stay${r.notCheckedOut === 1 ? " checks" : "s check"} out later this month and will be added then.</p>` : ""}
+    ${r.missingBillNo.length ? `<p class="warn">${r.missingBillNo.length} stay${r.missingBillNo.length === 1 ? " has" : "s have"} no bill number yet (marked below). Open the booking and tap Print bill to give it one.</p>` : ""}
+    <h2>Summary by GST rate</h2>
+    <div class="rep-scroll"><table>
+      <thead><tr><th>GST rate</th><th class="r">Bills</th><th class="r">Taxable value (room)</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Total GST</th><th class="r">Food &amp; extras</th><th class="r">Invoice value</th></tr></thead>
+      <tbody>${r.rates.map((g) => `<tr><td>${g.rate ? `${g.rate}%` : "Nil (0%)"}</td><td class="r">${g.bills}</td><td class="r">${inrPlain(g.taxable)}</td><td class="r">${inrPlain(g.cgst)}</td><td class="r">${inrPlain(g.sgst)}</td><td class="r">${inrPlain(g.gst)}</td><td class="r">${inrPlain(g.other)}</td><td class="r">${inrPlain(g.total)}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No bills this month.</td></tr>`}</tbody>
+      ${r.rates.length ? `<tfoot><tr><td>Total</td><td class="r">${t.bills}</td><td class="r">${inrPlain(t.taxable)}</td><td class="r">${inrPlain(t.cgst)}</td><td class="r">${inrPlain(t.sgst)}</td><td class="r">${inrPlain(t.gst)}</td><td class="r">${inrPlain(t.other)}</td><td class="r">${inrPlain(t.total)}</td></tr></tfoot>` : ""}
+    </table></div>
+    <p class="muted">All bills are to guests without a GSTIN (B2C). Room accommodation is SAC 996311. GST is charged on the room tariff; food and extras are listed without GST, as on the bills.</p>
+    <h2>Bills</h2>
+    <div class="rep-scroll"><table>
+      <thead><tr><th>Bill no.</th><th>Date</th><th>Guest</th><th>Apartment</th><th>Booking</th><th class="r">Nights</th><th class="r">GST</th><th class="r">Taxable value</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Food &amp; extras</th><th class="r">Invoice value</th></tr></thead>
+      <tbody>${r.lines.map((l) => `<tr data-open="${esc(l.id)}"><td>${l.bill_no ? esc(l.bill_no) : `<span class="tag">no bill no.</span>`}</td><td>${formatDate(l.date)}</td><td>${esc(l.guest)}</td><td>${esc(houseName(l.house_id))}</td><td>${esc(l.booking_type)}</td><td class="r">${l.nights}</td><td class="r">${l.rate}%</td><td class="r">${inrPlain(l.taxable)}</td><td class="r">${inrPlain(l.cgst)}</td><td class="r">${inrPlain(l.sgst)}</td><td class="r">${inrPlain(l.other)}</td><td class="r">${inrPlain(l.total)}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">No bills this month.</td></tr>`}</tbody>
+    </table></div>
+  </article>`;
+}
+function guestsHTML(rows) {
+  const missing = rows.filter((r) => r.missing.length && !r.from_diary).length;
+  const foreign = rows.filter((r) => r.foreign).length;
+  return `<article class="rep-doc">
+    <header><h1 id="repTitle">Guest register · ${ymLabel(report.ym)}</h1>
+      <p class="muted">${esc(billBiz().trade_name)} · ${rows.length} stay${rows.length === 1 ? "" : "s"}${foreign ? ` · ${foreign} with foreign guests (Form C)` : ""}</p></header>
+    ${missing ? `<p class="warn">${missing} stay${missing === 1 ? " is" : "s are"} missing details. Tap a row to open the booking and fill them in.</p>` : ""}
+    <div class="rep-scroll"><table>
+      <thead><tr><th>Check-in</th><th>Check-out</th><th>Apartment</th><th>Guest</th><th class="r">Guests</th><th>Address</th><th>Nationality</th><th>ID</th><th>Visa</th><th>Missing</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr data-open="${esc(r.id)}">
+        <td>${formatDate(r.check_in)}</td><td>${formatDate(r.check_out)}</td><td>${esc(houseName(r.house_id))}</td>
+        <td><b>${esc(r.guest)}</b>${r.phone ? `<br><span class="muted">${esc(r.phone)}</span>` : ""}</td>
+        <td class="r">${r.adults + r.children ? `${r.adults}${r.children ? ` + ${r.children}` : ""}` : ""}</td>
+        <td class="wrap">${esc(r.address)}</td><td>${esc(r.nationality)}</td>
+        <td>${r.id_number ? `${esc(r.id_type || "ID")}<br>${esc(r.id_number)}` : ""}</td>
+        <td>${r.foreign ? `${esc(r.visa_no)}${r.visa_expiry ? `<br><span class="muted">valid to ${formatDate(r.visa_expiry)}</span>` : ""}${r.arrived_india ? `<br><span class="muted">arrived ${formatDate(r.arrived_india)}</span>` : ""}` : ""}</td>
+        <td>${r.from_diary ? `<span class="tag info">diary</span>` : r.missing.length ? r.missing.map((m) => `<span class="tag">${m}</span>`).join("") : `<span class="tag ok">complete</span>`}</td>
+      </tr>`).join("") || `<tr><td colspan="10" class="muted">No stays this month.</td></tr>`}</tbody>
+    </table></div>
+    <p class="muted">Guests counted as adults + children. Foreign guests need a Form C report to the FRRO within 24 hours of arrival (indianfrro.gov.in).</p>
+  </article>`;
+}
+function closeReport() {
+  show("reportView", false);
+  report = null;
+  if (titleBeforeBill) document.title = titleBeforeBill;
+}
+$("gstBtn").addEventListener("click", () => openReport("gst"));
+$("guestRegBtn").addEventListener("click", () => openReport("guests"));
+$("repCloseBtn").addEventListener("click", closeReport);
+$("repMonth").addEventListener("change", () => { report.ym = $("repMonth").value; loadReport(); });
+$("repPrintBtn").addEventListener("click", () => window.print());
+$("repCsvBtn").addEventListener("click", () => {
+  if (!report?.data) return;
+  const csv = report.kind === "gst" ? gstCSV(report.data, houseName, billBiz()) : guestRegisterCSV(report.data, houseName);
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `${report.kind === "gst" ? "gst-report" : "guest-register"}-${report.ym}.csv` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+$("repDoc").addEventListener("click", (e) => {
+  const tr = e.target.closest("[data-open]");
+  if (!tr) return;
+  const b = report?.rows?.find((x) => x.id === tr.dataset.open);
+  if (!b) return;
+  closeReport();
+  openSheet(b);
 });
 
 // ════════════════════════════ Apartments ════════════════════════════
@@ -1036,6 +1364,11 @@ $("settingsBtn").addEventListener("click", () => showTab("settings"));
 const MONEY = ["tariff", "gst_pct", "food_bill", "advance_ota", "paid_cash", "cash_received", "tips", "paid_upi"];
 const TEXT = ["booking_type", "guest_name", "guest_phone", "check_in", "check_out", "bill_no", "notes"];
 const FIELDS = ["serial", "house_id", ...TEXT, ...MONEY];
+// Guest register details (migration 011): read and saved only once the database has them.
+const G_TEXT = ["guest_address", "nationality", "id_type", "id_number", "visa_no"];
+const G_NUM = ["adults", "children"];
+const G_DATE = ["visa_expiry", "arrived_india"];
+const G_FIELDS = [...G_TEXT, ...G_NUM, ...G_DATE];
 
 function readForm() {
   const o = {};
@@ -1047,6 +1380,13 @@ function readForm() {
     o[k] = x.on ? extraAmount(x.rate, days) : 0;
   });
   TEXT.forEach((f) => (o[f] = $(f).value.trim()));
+  if (state.bizV2) {
+    G_TEXT.forEach((f) => (o[f] = $(f).value.trim()));
+    G_NUM.forEach((f) => (o[f] = Math.max(0, Math.floor(num($(f).value)))));
+    G_DATE.forEach((f) => (o[f] = $(f).value || null));
+    if (/^india(n)?$/i.test(o.nationality)) o.nationality = "";
+    if (!isForeign(o)) { o.visa_no = ""; o.visa_expiry = null; o.arrived_india = null; }
+  }
   o.house_id = Number($("house_id").value);
   o.serial = $("serial").value === "" ? null : Number($("serial").value);
   return o;
@@ -1152,6 +1492,13 @@ async function openSheet(b = null, prefill = null) {
   $("sheetTitle").textContent = b ? `Booking #${b.serial}` : "New booking";
   $("saveBtn").textContent = "Save booking";
   FIELDS.forEach((f) => ($(f).value = b ? b[f] ?? "" : ""));
+  show("guestFs", !!state.bizV2);
+  G_FIELDS.forEach((f) => ($(f).value = b ? b[f] ?? "" : ""));
+  G_NUM.forEach((f) => { if (b && !num(b[f])) $(f).value = ""; });
+  showForeign();
+  state.returnFor = null;
+  show("returnHint", false);
+  $("tariff").placeholder = $("tariff").dataset.ph ??= $("tariff").placeholder;
   setExtrasFrom(b);
   if (b) {
     MONEY.forEach((f) => { if (f !== "gst_pct" && !num(b[f])) $(f).value = ""; });
@@ -1176,7 +1523,57 @@ async function openSheet(b = null, prefill = null) {
   show("sheet");
   if (!b) $("serial").value = await suggestSerial();
   $("guest_name").focus();
+  if (b) checkReturning();
 }
+
+// ── Guest details: foreign-guest fields, returning guests ──
+$("id_type").innerHTML = `<option value="">Choose…</option>` + ID_TYPES.map((t) => `<option>${esc(t)}</option>`).join("");
+function showForeign() {
+  const foreign = isForeign({ nationality: $("nationality").value });
+  document.querySelectorAll("#guestFs .foreign").forEach((el) => (el.hidden = !foreign));
+  if (foreign && !$("id_type").value) $("id_type").value = "Passport";
+}
+$("nationality").addEventListener("input", showForeign);
+
+// When staff type a name or phone that has stayed before, show the earlier stays.
+let returnTimer = 0;
+["guest_name", "guest_phone"].forEach((id) => $(id).addEventListener("input", () => { clearTimeout(returnTimer); returnTimer = setTimeout(checkReturning, 450); }));
+async function checkReturning() {
+  const name = $("guest_name").value.trim(), phone = $("guest_phone").value.trim();
+  const digits = phone.replace(/\D/g, "");
+  const key = `${name.toLowerCase()}|${digits}`;
+  if (key === state.returnFor) return;
+  state.returnFor = key;
+  const safeName = name.replace(/[,()*%\\]/g, " ").trim();
+  const ors = [];
+  if (digits.length >= 10) ors.push(`guest_phone.ilike.*${digits.slice(-4)}`);
+  if (safeName.length >= 4) ors.push(`guest_name.ilike.${safeName}`);
+  if (!ors.length) { show("returnHint", false); return; }
+  const { data, error } = await sb.from("bookings").select("id,house_id,guest_name,guest_phone,check_in,check_out,nights,tariff,booking_type,guest_address,nationality,id_type,id_number,adults,children")
+    .or(ors.join(",")).order("check_in", { ascending: false }).limit(50);
+  if (error || state.returnFor !== key || $("sheet").hidden) return;
+  const past = pastStays(data, { phone, name, excludeId: state.editing?.id });
+  if (!past.length) { show("returnHint", false); return; }
+  state.returnPast = past;
+  const last = past[0];
+  const perNight = last.nights ? num(last.tariff) / last.nights : 0;
+  const canFill = state.bizV2 && ["guest_address", "id_number", "nationality"].some((k) => last[k] && !$(k).value);
+  $("returnHint").innerHTML = `<span><b>Returning guest</b> · ${past.length} earlier stay${past.length === 1 ? "" : "s"}</span>
+    ${canFill ? `<button class="btn small" type="button" id="returnFill">Use their details</button>` : ""}
+    <ul>${past.slice(0, 3).map((p) => `<li>${formatDate(p.check_in)} · ${esc(houseName(p.house_id))} · ${p.nights} night${p.nights === 1 ? "" : "s"}${num(p.tariff) ? ` · ${formatINR(num(p.tariff) / (p.nights || 1))}/night` : ""} · ${esc(p.booking_type)}</li>`).join("")}</ul>`;
+  show("returnHint");
+  if (perNight && !num($("tariff").value) && !state.editing) $("tariff").placeholder = `Last time ${formatINR(perNight)}/night`;
+}
+$("returnHint").addEventListener("click", (e) => {
+  if (!e.target.closest("#returnFill")) return;
+  const last = state.returnPast?.[0];
+  if (!last) return;
+  ["guest_address", "nationality", "id_type", "id_number"].forEach((k) => { if (last[k] && !$(k).value) $(k).value = last[k]; });
+  if (!$("guest_phone").value && last.guest_phone) $("guest_phone").value = last.guest_phone;
+  showForeign();
+  e.target.remove();
+  toast("Filled in from their last stay");
+});
 
 function closeSheet() { show("sheet", false); state.editing = null; }
 $("newBtn").addEventListener("click", () => openSheet(null));
@@ -1184,16 +1581,17 @@ document.querySelectorAll("[data-close]").forEach((el) => el.addEventListener("c
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("billView").hidden) closeBill();
+  else if (!$("reportView").hidden) closeReport();
   else if (!$("sheet").hidden) closeSheet();
   else if (!$("perfSheet").hidden) closePerf();
 });
 
 function formError(msg) { const e = $("formErr"); e.textContent = msg; show(e); e.scrollIntoView({ block: "nearest" }); }
 
-async function findOverlap(b) {
+async function findOverlap(b, excludeId = state.editing?.id) {
   let q = sb.from("bookings").select("serial,guest_name,check_in,check_out")
     .eq("house_id", b.house_id).lt("check_in", b.check_out).gt("check_out", b.check_in).limit(1);
-  if (state.editing) q = q.neq("id", state.editing.id);
+  if (excludeId) q = q.neq("id", excludeId);
   const { data } = await q;
   return data?.[0] ?? null;
 }
@@ -1256,6 +1654,7 @@ function formMatchesSaved() {
   const f = readForm(), s = state.editing;
   return [...MONEY, ...EXTRAS, ...EXTRAS.map((k) => `${k}_days`)].every((k) => num(f[k]) === num(s[k]))
     && TEXT.every((k) => f[k] === String(s[k] ?? "").trim())
+    && (!state.bizV2 || (G_TEXT.every((k) => f[k] === String(s[k] ?? "").trim()) && G_NUM.every((k) => f[k] === num(s[k])) && G_DATE.every((k) => (f[k] || null) === (s[k] || null))))
     && f.house_id === s.house_id && f.serial === s.serial;
 }
 
@@ -1283,7 +1682,7 @@ $("billBtn").addEventListener("click", async () => {
 });
 
 let titleBeforeBill = document.title;
-const billBiz = () => ({ ...state.business, legal_name: state.business.legal_name || BUSINESS_NAME });
+const billBiz = () => ({ ...state.business, legal_name: state.business.legal_name || BUSINESS_NAME, trade_name: state.business.trade_name || BUSINESS_NAME });
 function openBill(b) {
   const biz = billBiz();
   $("billDoc").innerHTML = billHTML(b, biz, houseName(b.house_id));
@@ -1360,12 +1759,30 @@ $("billWaBtn").addEventListener("click", () => {
   state.billPdf.catch(() => {});
   if (!b.guest_phone) $("waPhone").focus();
 });
+// Download the bill as a PDF (same picture as the WhatsApp PDF).
+$("billPdfBtn").addEventListener("click", async () => {
+  const btn = $("billPdfBtn");
+  btn.disabled = true;
+  try {
+    let file;
+    try { file = await (state.billPdf ||= makeBillPdf(state.billBooking)); }
+    catch { state.billPdf = null; toast(navigator.onLine ? "Couldn't make the PDF. Use Print / Save PDF instead." : "You're offline. Connect once to make PDFs, or use Print / Save PDF."); return; }
+    const url = URL.createObjectURL(file);
+    const a = Object.assign(document.createElement("a"), { href: url, download: file.name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast(`${file.name} saved`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("waChatBtn").addEventListener("click", async () => {
   const b = state.billBooking;
   const raw = $("waPhone").value.trim();
   const phone = waPhone(raw);
   if (!phone) { toast("Enter the guest's mobile number, e.g. 98765 43210"); $("waPhone").focus(); return; }
-  window.open(waLink(phone, billMessage(b, billBiz().legal_name, houseName(b.house_id))), "_blank", "noopener");
+  window.open(waLink(phone, billMessage(b, billBiz().trade_name, houseName(b.house_id))), "_blank", "noopener");
   // Remember a new or corrected number on the booking (quietly; the chat opens either way).
   if (raw !== (b.guest_phone || "")) {
     const { error } = await sb.from("bookings").update({ guest_phone: raw }).eq("id", b.id);
@@ -1440,8 +1857,11 @@ async function renderSettings() {
   }
 
   renderClosedDates();
+  renderHelper();
 
-  if (!$("bizForm").contains(document.activeElement)) BIZ_FIELDS.forEach((k) => ($(`biz_${k}`).value = state.business[k]));
+  if (!$("bizForm").contains(document.activeElement)) [...BIZ_FIELDS, ...BIZ_FIELDS2].forEach((k) => ($(`biz_${k}`).value = state.business[k] ?? ""));
+  document.querySelectorAll(".biz-v2").forEach((el) => (el.hidden = !state.bizV2));
+  showLogo();
   if (!state.businessLoaded) {
     $("bizErr").textContent = "Bill details aren't set up yet. Run supabase/migrations/003_guest_bill.sql in Supabase (SQL Editor), then reopen the app.";
     show("bizErr");
@@ -1664,11 +2084,52 @@ $("sigFile").addEventListener("change", async (e) => {
 });
 $("sigRemove").addEventListener("click", () => { state.sigDraft = ""; showSignature(); });
 
+// ── logo ──
+state.logoDraft = null; // picked in Settings but not saved yet ("" = removed)
+function showLogo() {
+  const logo = state.logoDraft ?? state.business.logo;
+  $("logoPreview").src = logo || "";
+  show("logoPreview", !!logo);
+  show("logoNone", !logo);
+  show("logoRemove", !!logo);
+}
+/** Shrink a logo to at most 480 × 200 px. PNG keeps transparency; photos become JPEG to stay small. */
+function prepareLogo(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("That file isn't a picture this phone can open. Try a JPG or PNG.")); };
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      const k = Math.min(1, 480 / img.width, 200 / img.height);
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const png = c.toDataURL("image/png");
+      resolve(png.length < 150000 || file.type === "image/png" ? png : c.toDataURL("image/jpeg", 0.88));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+$("logoFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  show("bizErr", false);
+  try { state.logoDraft = await prepareLogo(file); showLogo(); }
+  catch (err) { $("bizErr").textContent = err.message; show("bizErr"); }
+});
+$("logoRemove").addEventListener("click", () => { state.logoDraft = ""; showLogo(); });
+
 $("bizForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   show("bizErr", false);
   const row = { id: 1, updated_at: new Date().toISOString() };
   BIZ_FIELDS.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
+  if (state.bizV2) {
+    BIZ_FIELDS2.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
+    row.bank_ifsc = row.bank_ifsc.toUpperCase();
+    if (state.logoDraft !== null) row.logo = state.logoDraft;
+  }
   // Only send the signature when it changed, so the rest still saves before migration 004 is run.
   if (state.sigDraft !== null) row.signature = state.sigDraft;
   row.gstin = row.gstin.toUpperCase().replace(/\s/g, "");
@@ -1685,6 +2146,7 @@ $("bizForm").addEventListener("submit", async (e) => {
       : "Couldn't save the bill details. Check your connection and try again.");
   }
   state.sigDraft = null;
+  state.logoDraft = null;
   document.activeElement?.blur();
   toast("Bill details saved");
   reloadAll();

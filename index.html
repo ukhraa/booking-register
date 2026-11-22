@@ -75,6 +75,10 @@
     <main class="wrap">
       <!-- Summary -->
       <section id="tab-summary" class="stack">
+        <section class="attn card" id="attnBox" aria-labelledby="attnTitle" hidden>
+          <h2 id="attnTitle">Needs a look</h2>
+          <div id="attnList" class="attn-list"></div>
+        </section>
         <section class="today" aria-labelledby="todayTitle">
           <div class="row-between">
             <h2 id="todayTitle">Today</h2>
@@ -104,6 +108,8 @@
         <div class="row-between">
           <h2 id="periodTitle">Bookings</h2>
           <div class="actions">
+            <button class="btn" id="guestRegBtn" type="button">Guest register</button>
+            <button class="btn" id="gstBtn" type="button" hidden>GST report</button>
             <button class="btn" id="exportBtn">Export CSV</button>
           </div>
         </div>
@@ -258,6 +264,25 @@
           <div><button class="btn primary" type="submit">Save targets</button></div>
         </form>
 
+        <h2>Booking emails, calendars and backups</h2>
+        <div class="card stack m011" id="helperCard">
+          <p class="muted">A small Google script in the hotel's Gmail account copies AxisRooms booking emails into the app every 10 minutes, checks the Airbnb and Booking.com calendars every hour, and saves a backup of everything to Google Drive every week. Set it up once with the guide in <b>GOOGLE_HELPER.md</b> (in the app's GitHub folder).</p>
+          <div id="helperStatus" class="helper-status"></div>
+          <div class="actions">
+            <button class="btn" id="helperKeyBtn" type="button">Make a helper key</button>
+          </div>
+          <div class="helper-key" id="helperKeyBox" hidden>
+            <p>Paste this key into the Google script (<code>HELPER_KEY</code>). It's shown only now: making a new key stops the old one working.</p>
+            <code id="helperKey"></code>
+            <button class="btn small" id="helperKeyCopy" type="button">Copy</button>
+          </div>
+          <h3 class="subhead">Calendar links (iCal)</h3>
+          <p class="hint">In Airbnb: Listing → Availability → Connect calendars → Export calendar. In Booking.com extranet: Rates &amp; availability → Sync calendars → Export. Paste each apartment's link.</p>
+          <div id="icalList" class="ical-list"></div>
+          <p class="err" id="icalErr" hidden></p>
+          <div><button class="btn primary" id="icalSave" type="button">Save calendar links</button></div>
+        </div>
+
         <h2>Closed dates</h2>
         <form id="closedForm" class="card stack" novalidate>
           <p class="muted">Dates an apartment, or the whole property, is closed, or closed to direct bookings only (OTAs can still sell them). They show on the Availability grid, and the booking form warns before a booking is saved on them.</p>
@@ -278,7 +303,8 @@
         <form id="bizForm" class="card stack" novalidate>
           <p class="muted">Printed at the top of every guest bill. With a GSTIN the bill is a Tax Invoice and shows CGST and SGST separately.</p>
           <div class="grid2">
-            <div class="f"><label for="biz_legal_name">Business name</label><input id="biz_legal_name" type="text" maxlength="80"></div>
+            <div class="f biz-v2"><label for="biz_trade_name">Name shown on the bill</label><input id="biz_trade_name" type="text" maxlength="80" placeholder="Two Seas Residence"></div>
+            <div class="f"><label for="biz_legal_name">Registered business name</label><input id="biz_legal_name" type="text" maxlength="80"></div>
             <div class="f"><label for="biz_gstin">GSTIN</label><input id="biz_gstin" type="text" maxlength="15" autocapitalize="characters" autocomplete="off" placeholder="Leave blank if not registered"></div>
             <div class="f wide"><label for="biz_address">Address</label><textarea id="biz_address" rows="3" maxlength="300"></textarea></div>
             <div class="f"><label for="biz_phone">Phone</label><input id="biz_phone" type="tel" maxlength="40"></div>
@@ -286,6 +312,22 @@
             <div class="f"><label for="biz_state">State (place of supply)</label><input id="biz_state" type="text" maxlength="40" placeholder="e.g. Kerala"></div>
             <div class="f"><label for="biz_invoice_prefix">Bill number prefix</label><input id="biz_invoice_prefix" type="text" maxlength="5" autocapitalize="characters" autocomplete="off"></div>
             <div class="f wide"><label for="biz_footer_note">Note at the bottom of the bill</label><input id="biz_footer_note" type="text" maxlength="200"></div>
+            <div class="f wide biz-v2">
+              <span class="lbl">Logo (top left of the bill)</span>
+              <div class="sig-edit"><img id="logoPreview" alt="Your logo" hidden><span class="muted small" id="logoNone">No logo yet</span></div>
+              <div class="actions">
+                <label class="btn" for="logoFile">Choose image…</label>
+                <input id="logoFile" class="vh" type="file" accept="image/*">
+                <button class="btn ghost" type="button" id="logoRemove">Remove</button>
+              </div>
+              <p class="hint">A PNG or JPG. It's made smaller automatically. Tap Save bill details to keep it.</p>
+            </div>
+            <div class="f wide biz-v2"><span class="lbl">Payment details (printed when a balance is due)</span></div>
+            <div class="f biz-v2"><label for="biz_bank_account_name">Account name</label><input id="biz_bank_account_name" type="text" maxlength="80"></div>
+            <div class="f biz-v2"><label for="biz_bank_account_no">Account number</label><input id="biz_bank_account_no" type="text" inputmode="numeric" maxlength="20" autocomplete="off"></div>
+            <div class="f biz-v2"><label for="biz_bank_ifsc">IFSC</label><input id="biz_bank_ifsc" type="text" maxlength="11" autocapitalize="characters" autocomplete="off"></div>
+            <div class="f biz-v2"><label for="biz_bank_name">Bank and branch</label><input id="biz_bank_name" type="text" maxlength="80" placeholder="e.g. SBI, Ooty"></div>
+            <div class="f biz-v2"><label for="biz_upi_id">UPI ID</label><input id="biz_upi_id" type="text" maxlength="60" autocomplete="off" placeholder="name@bank"></div>
             <div class="f wide">
               <span class="lbl">Signature (printed above "Authorised signatory")</span>
               <div class="sig-edit"><img id="sigPreview" alt="Your signature" hidden><span class="muted small" id="sigNone">No signature yet</span></div>
@@ -359,6 +401,22 @@
           <div class="f"><label for="check_out">Check-out Date</label><input id="check_out" type="date"></div>
           <div class="f calc"><span class="lbl">No. of Nights</span><output id="o_nights">0</output></div>
           <p class="hint wide" id="stayHint"></p>
+          <div class="returning wide" id="returnHint" hidden></div>
+        </fieldset>
+
+        <fieldset class="m011" id="guestFs" hidden>
+          <legend>Guests</legend>
+          <div class="f"><label for="adults">Adults</label><input id="adults" type="number" min="0" max="30" step="1" inputmode="numeric"></div>
+          <div class="f"><label for="children">Children</label><input id="children" type="number" min="0" max="30" step="1" inputmode="numeric"></div>
+          <div class="f wide"><label for="guest_address">Address</label><input id="guest_address" type="text" maxlength="200" autocomplete="off" placeholder="House, street, city, state"></div>
+          <div class="f"><label for="nationality">Nationality</label><input id="nationality" type="text" maxlength="40" list="natList" autocomplete="off" placeholder="Indian"></div>
+          <div class="f"><label for="id_type">ID type</label><select id="id_type"></select></div>
+          <div class="f"><label for="id_number">ID number</label><input id="id_number" type="text" maxlength="30" autocomplete="off" autocapitalize="characters"></div>
+          <div class="f foreign"><label for="visa_no">Visa number</label><input id="visa_no" type="text" maxlength="30" autocomplete="off" autocapitalize="characters"></div>
+          <div class="f foreign"><label for="visa_expiry">Visa valid until</label><input id="visa_expiry" type="date"></div>
+          <div class="f foreign"><label for="arrived_india">Arrived in India on</label><input id="arrived_india" type="date"></div>
+          <p class="hint wide foreign">Foreign guest: use ID type Passport, and file Form C with the FRRO within 24 hours of arrival (indianfrro.gov.in).</p>
+          <datalist id="natList"><option>Indian</option><option>American</option><option>British</option><option>German</option><option>French</option><option>Australian</option><option>Canadian</option><option>Russian</option><option>Israeli</option><option>Dutch</option><option>Sri Lankan</option><option>Nepali</option></datalist>
         </fieldset>
 
         <fieldset>
@@ -417,11 +475,24 @@
     </aside>
   </div>
 
+  <!-- Monthly reports (GST report, guest register). Printed like the bill. -->
+  <div id="reportView" class="bill-host" role="dialog" aria-modal="true" aria-labelledby="repTitle" hidden>
+    <div class="bill-bar">
+      <button class="btn ghost" id="repCloseBtn" type="button">Close</button>
+      <select id="repMonth" aria-label="Month"></select>
+      <span class="grow"></span>
+      <button class="btn" id="repCsvBtn" type="button"><span class="lbl-long">Download CSV</span><span class="lbl-short">CSV</span></button>
+      <button class="btn primary" id="repPrintBtn" type="button">Print</button>
+    </div>
+    <div class="bill-scroll"><div id="repDoc"></div></div>
+  </div>
+
   <!-- Guest bill preview. Only this is printed. -->
   <div id="billView" class="bill-host" role="dialog" aria-modal="true" aria-label="Guest bill" hidden>
     <div class="bill-bar">
       <button class="btn ghost" id="billCloseBtn" type="button">Close</button>
       <span class="grow"></span>
+      <button class="btn" id="billPdfBtn" type="button"><span class="lbl-long">Download PDF</span><span class="lbl-short">PDF</span></button>
       <button class="btn wa" id="billWaBtn" type="button" aria-expanded="false" aria-controls="waPanel">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></svg>
         <span>WhatsApp</span>
