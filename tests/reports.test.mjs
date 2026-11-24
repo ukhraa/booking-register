@@ -65,3 +65,16 @@ test("GSTIN check", () => {
   assert.match(gstinProblem("27AAPFU0939F1"), /15 characters/);
   assert.match(gstinProblem("ABCDEFGHIJKLMNO"), /doesn't look like/);
 });
+
+test("GST report includes food bills (GST inside the price), B2B when they have a GSTIN", () => {
+  const food = [
+    { id: "f1", bill_no: "TSR/F/26-27/0001", bill_date: "2026-11-24", house_id: 4, guest_name: "Ravi", items: [{ item: "Thali", qty: 2, rate: 210 }], gst_pct: 5, guest_company: "Acme", guest_gstin: "27AAPFU0939F1ZV" },
+    { id: "f2", bill_no: "TSR/F/26-27/0002", bill_date: "2026-11-25", items: [{ item: "Tea", qty: 3, rate: 25 }], gst_pct: 0 },
+    { id: "f3", bill_no: "TSR/F/26-27/0003", bill_date: "2026-12-01", items: [{ item: "Tea", qty: 1, rate: 25 }], gst_pct: 0 },
+  ];
+  const r = gstReport([], "2026-11", null, food);
+  assert.equal(r.lines.length, 2);
+  assert.deepEqual(r.rates.map((g) => [g.rate, g.bills, g.taxable, g.gst, g.total]), [[0, 1, 75, 0, 75], [5, 1, 400, 20, 420]]);
+  assert.equal(r.b2b.length, 1);
+  assert.equal(r.b2b[0].food, true);
+});

@@ -228,6 +228,8 @@ async function loadBusiness() {
   // Food bills (migration 013).
   const fprobe = await sb.from("food_bills").select("id").limit(1);
   state.foodReady = !fprobe.error;
+  const fgprobe = state.foodReady ? await sb.from("food_bills").select("guest_gstin").limit(1) : { error: true };
+  state.foodGstinReady = !fgprobe.error; // migration 014
   show("foodBtn", state.foodReady);
 }
 
@@ -707,10 +709,12 @@ async function loadReport() {
   let q = sb.from("bookings").select("*");
   q = kind === "gst" ? q.gte("check_out", start).lte("check_out", end) : q.lte("check_in", end).gt("check_out", start);
   const { data, error } = await q.order("check_in").limit(2000);
+  const foodRes = kind === "gst" && state.foodReady ? await sb.from("food_bills").select("*").gte("bill_date", start).lte("bill_date", end).limit(3000) : { data: [] };
   if (report?.ym !== ym || report?.kind !== kind) return; // month changed while loading
   if (error) { $("repDoc").innerHTML = `<article class="rep-doc"><p class="warn">Couldn't load the bookings. Check your connection and try again.</p></article>`; return; }
   report.rows = data;
-  report.data = kind === "gst" ? gstReport(data, ym, todayISO()) : guestRegister(data, ym);
+  report.food = foodRes.data || [];
+  report.data = kind === "gst" ? gstReport(data, ym, todayISO(), report.food) : guestRegister(data, ym);
   document.title = `${kind === "gst" ? "GST report" : "Guest register"} ${ym}`;
   $("repDoc").innerHTML = kind === "gst" ? gstHTML(report.data) : guestsHTML(report.data);
 }
@@ -724,11 +728,11 @@ function gstHTML(r) {
     ${r.missingBillNo.length ? `<p class="warn">${r.missingBillNo.length} stay${r.missingBillNo.length === 1 ? " has" : "s have"} no bill number yet (marked below). Open the booking and tap Print bill to give it one.</p>` : ""}
     <h2>Summary by GST rate</h2>
     <div class="rep-scroll"><table>
-      <thead><tr><th>GST rate</th><th class="r">Bills</th><th class="r">Taxable value (room)</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Total GST</th><th class="r">Food &amp; extras</th><th class="r">Invoice value</th></tr></thead>
+      <thead><tr><th>GST rate</th><th class="r">Bills</th><th class="r">Taxable value</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Total GST</th><th class="r">Food &amp; extras</th><th class="r">Invoice value</th></tr></thead>
       <tbody>${r.rates.map((g) => `<tr><td>${g.rate ? `${g.rate}%` : "Nil (0%)"}</td><td class="r">${g.bills}</td><td class="r">${inrPlain(g.taxable)}</td><td class="r">${inrPlain(g.cgst)}</td><td class="r">${inrPlain(g.sgst)}</td><td class="r">${inrPlain(g.gst)}</td><td class="r">${inrPlain(g.other)}</td><td class="r">${inrPlain(g.total)}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No bills this month.</td></tr>`}</tbody>
       ${r.rates.length ? `<tfoot><tr><td>Total</td><td class="r">${t.bills}</td><td class="r">${inrPlain(t.taxable)}</td><td class="r">${inrPlain(t.cgst)}</td><td class="r">${inrPlain(t.sgst)}</td><td class="r">${inrPlain(t.gst)}</td><td class="r">${inrPlain(t.other)}</td><td class="r">${inrPlain(t.total)}</td></tr></tfoot>` : ""}
     </table></div>
-    <p class="muted">${r.b2b.length ? `${r.b2bTotals.bills} bill${r.b2bTotals.bills === 1 ? "" : "s"} to businesses with a GSTIN (B2B, listed below for GSTR-1); ${r.b2cTotals.bills} to guests without one (B2C).` : "All bills are to guests without a GSTIN (B2C)."} Room accommodation is SAC 996311; place of supply is the hotel's state, so GST is CGST + SGST. GST is charged on the room tariff; food and extras are listed without GST, as on the bills.</p>
+    <p class="muted">${r.b2b.length ? `${r.b2bTotals.bills} bill${r.b2bTotals.bills === 1 ? "" : "s"} to businesses with a GSTIN (B2B, listed below for GSTR-1); ${r.b2cTotals.bills} to guests without one (B2C).` : "All bills are to guests without a GSTIN (B2C)."} Room accommodation is SAC 996311, food bills SAC 996331; place of supply is the hotel's state, so GST is CGST + SGST. On room bills GST is on the tariff and food &amp; extras have none; food bills with GST include it in their prices. A food bill added to a room bill is counted as its own bill here and also appears in that stay's food &amp; extras.</p>
     ${r.b2b.length ? `<h2>B2B bills (guest has a GSTIN)</h2>
     <div class="rep-scroll"><table>
       <thead><tr><th>Guest GSTIN</th><th>Company</th><th>Bill no.</th><th>Date</th><th class="r">GST</th><th class="r">Taxable value</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Invoice value</th></tr></thead>
@@ -785,6 +789,8 @@ $("repCsvBtn").addEventListener("click", () => {
 $("repDoc").addEventListener("click", (e) => {
   const tr = e.target.closest("[data-open]");
   if (!tr) return;
+  const fb = report?.food?.find((x) => x.id === tr.dataset.open);
+  if (fb) { closeReport(); openFoodBill(fb); return; }
   const b = report?.rows?.find((x) => x.id === tr.dataset.open);
   if (!b) return;
   closeReport();
@@ -1761,6 +1767,9 @@ async function openFood(prefill = {}) {
   $("fd_guest").value = prefill.guest_name || "";
   $("fd_paid").value = "cash";
   $("fd_gst").value = "0";
+  $("fd_company").value = ""; $("fd_gstin").value = "";
+  document.querySelectorAll(".fd-gst").forEach((el) => (el.hidden = !state.foodGstinReady));
+  show("fd_gsthint", false);
   show("fd_err", false);
   food = { booking: prefill.booking || null, lines: [], recent: [] };
   $("fd_lines").innerHTML = `<div class="fd-line fd-head"><span>Qty</span><span>Item</span><span>Rate</span><span>Amount</span><span></span></div>`;
@@ -1798,11 +1807,20 @@ function foodTotal() {
   });
   $("fd_total").textContent = formatINR(foodTotals(foodLines(), num($("fd_gst").value)).total);
 }
-function linkStay(auto = true) {
+async function linkStay(auto = true) {
   const h = Number($("fd_house").value) || null;
   if (auto) food.booking = h ? stayFor(h, $("fd_date").value) : null;
   const b = food.booking;
   if (b && !$("fd_guest").value) $("fd_guest").value = b.guest_name;
+  // The stay's company and GSTIN, if it has them (the list of upcoming stays doesn't carry them).
+  if (b && state.foodGstinReady && state.gstinReady && !$("fd_gstin").value) {
+    let co = b.guest_company, gi = b.guest_gstin;
+    if (gi === undefined) {
+      const { data } = await sb.from("bookings").select("guest_company,guest_gstin").eq("id", b.id).limit(1);
+      co = data?.[0]?.guest_company; gi = data?.[0]?.guest_gstin;
+    }
+    if (food?.booking === b && gi && !$("fd_gstin").value) { $("fd_company").value = co || ""; $("fd_gstin").value = gi; gstForBusiness(); }
+  }
   $("fd_stay").textContent = b ? `For ${b.guest_name}'s stay (${formatDate(b.check_in)} → ${formatDate(b.check_out)}).` : h ? "No stay in this apartment on this date." : "";
   const roomOpt = $("fd_paid").querySelector('option[value="room"]');
   roomOpt.disabled = !b;
@@ -1840,8 +1858,15 @@ $("fd_lines").addEventListener("input", (e) => {
   }
   foodTotal();
 });
-$("fd_gst").addEventListener("change", foodTotal);
-$("fd_house").addEventListener("change", () => { $("fd_guest").value = ""; linkStay(); });
+$("fd_gst").addEventListener("change", () => { show("fd_gsthint", false); foodTotal(); });
+// A business guest can only claim GST that's on the bill: suggest 5% once a valid GSTIN is typed.
+function gstForBusiness() {
+  if (!gstinProblem($("fd_gstin").value) && cleanGstin($("fd_gstin").value) && num($("fd_gst").value) === 0) {
+    $("fd_gst").value = "5"; show("fd_gsthint"); foodTotal();
+  }
+}
+$("fd_gstin").addEventListener("change", gstForBusiness);
+$("fd_house").addEventListener("change", () => { $("fd_guest").value = ""; $("fd_company").value = ""; $("fd_gstin").value = ""; linkStay(); });
 $("fd_date").addEventListener("change", () => { linkStay(); renderFoodRecent(); });
 $("fd_recent").addEventListener("click", (e) => {
   const fb = food?.recent.find((f) => f.id === e.target.closest("[data-fb]")?.dataset.fb);
@@ -1855,12 +1880,19 @@ $("fd_save").addEventListener("click", async () => {
   if (!$("fd_date").value) return err("Enter the date.");
   if (!t.lines.length) return err("Add at least one item with a quantity.");
   if (t.lines.some((l) => l.rate <= 0)) return err("Enter a rate for every item.");
+  const gstin = cleanGstin($("fd_gstin").value), company = $("fd_company").value.trim();
+  if (state.foodGstinReady) {
+    const gp = gstinProblem(gstin);
+    if (gp) { $("fd_gstin").focus(); return err(gp); }
+    if (gstin && !company) { $("fd_company").focus(); return err("Enter the company name that goes with the GSTIN."); }
+  }
   const paid = $("fd_paid").value;
   const row = {
     bill_date: $("fd_date").value, house_id: Number($("fd_house").value) || null, booking_id: food.booking?.id ?? null,
     guest_name: $("fd_guest").value.trim(), items: t.lines.map(({ item, qty, rate }) => ({ item, qty, rate })),
     gst_pct: gst, total: t.total, paid_by: paid,
   };
+  if (state.foodGstinReady) { row.guest_company = company; row.guest_gstin = gstin; }
   const btn = $("fd_save");
   btn.disabled = true;
   try {

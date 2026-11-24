@@ -675,6 +675,10 @@ create table if not exists public.food_bills (
   created_at    timestamptz not null default now()
 );
 create index if not exists food_bills_date_idx on public.food_bills (bill_date);
+-- The guest's company and GSTIN on food bills (migration 014).
+alter table public.food_bills
+  add column if not exists guest_company text not null default '',
+  add column if not exists guest_gstin   text not null default '';
 create index if not exists food_bills_booking_idx on public.food_bills (booking_id);
 
 alter table public.food_bills enable row level security;

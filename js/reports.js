@@ -2,6 +2,7 @@
 //  • GST report for the accountant: bills by invoice date (check-out), GST by rate.
 //  • Guest register: who stayed, with ID details, for police / Form C records.
 import { calcBooking, splitGst, formatDate, num, monthRange } from "./calc.js";
+import { foodTotals } from "./food.js";
 
 const r2 = (n) => Math.round(n * 100) / 100;
 const csvCell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -12,7 +13,7 @@ const csvRow = (cells) => cells.map(csvCell).join(",");
  * (the invoice date). Stays copied from the old diaries are left out.
  * GST in the app is charged on the room tariff; food and extras have no GST line.
  */
-export function gstReport(bookings, ym, today = null) {
+export function gstReport(bookings, ym, today = null, foodBills = []) {
   const [start, end] = monthRange(ym);
   // Stays that haven't checked out yet have no bill yet: counted separately, not in the totals.
   const notYet = bookings.filter((b) => !b.from_diary && today && b.check_out > today && b.check_out >= start && b.check_out <= end);
@@ -32,6 +33,18 @@ export function gstReport(bookings, ym, today = null) {
     byRate.set(rate, g);
     return line;
   });
+  // Food bills: their own invoices, by bill date. GST (when set) is included in their prices.
+  for (const f of foodBills.filter((x) => x.bill_date >= start && x.bill_date <= end)) {
+    const t = foodTotals(f.items, f.gst_pct);
+    const line = { id: f.id, food: true, bill_no: f.bill_no || "", date: f.bill_date, guest: f.guest_name || "", house_id: f.house_id,
+      booking_type: "Food bill", nights: 0, rate: t.gstPct, taxable: t.taxable, cgst: t.cgst, sgst: t.sgst, gst: t.gst, other: 0, total: t.total,
+      gstin: cleanGstin(f.guest_gstin), company: String(f.guest_company || "").trim() };
+    lines.push(line);
+    const g = byRate.get(line.rate) || { rate: line.rate, bills: 0, taxable: 0, cgst: 0, sgst: 0, gst: 0, other: 0, total: 0 };
+    g.bills++; g.taxable += line.taxable; g.cgst += line.cgst; g.sgst += line.sgst; g.gst += line.gst; g.total += line.total;
+    byRate.set(line.rate, g);
+  }
+  lines.sort((a, b) => (a.date + a.bill_no).localeCompare(b.date + b.bill_no));
   const rates = [...byRate.values()].sort((a, b) => a.rate - b.rate)
     .map((g) => ({ ...g, taxable: r2(g.taxable), cgst: r2(g.cgst), sgst: r2(g.sgst), gst: r2(g.gst), other: r2(g.other), total: r2(g.total) }));
   const sum = (k) => r2(rates.reduce((s, g) => s + g[k], 0));
@@ -51,7 +64,7 @@ export function gstCSV(rep, houseName, business = {}) {
     csvRow([`GST report ${rep.ym}`, business.trade_name || business.legal_name || "", business.gstin ? `GSTIN ${business.gstin}` : ""]),
     "",
     csvRow(["Summary by GST rate"]),
-    csvRow(["GST rate %", "Bills", "Taxable value (room)", "CGST", "SGST", "Total GST", "Food & extras (no GST)", "Invoice value"]),
+    csvRow(["GST rate %", "Bills", "Taxable value", "CGST", "SGST", "Total GST", "Food & extras on room bills (no GST)", "Invoice value"]),
     ...rep.rates.map((g) => csvRow([g.rate, g.bills, g.taxable, g.cgst, g.sgst, g.gst, g.other, g.total])),
     csvRow(["Total", rep.totals.bills, rep.totals.taxable, rep.totals.cgst, rep.totals.sgst, rep.totals.gst, rep.totals.other, rep.totals.total]),
     "",

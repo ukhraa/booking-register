@@ -40,3 +40,9 @@ test("food bill HTML", () => {
   assert.match(g, /Added to room bill/);
   assert.equal(foodFileName(fb), "Food bill TSR-F-26-27-0001.pdf");
 });
+
+test("food bill to a business: company and GSTIN", () => {
+  const fb = { bill_no: "F1", bill_date: "2026-11-24", guest_name: "Ravi", guest_company: "Acme Pvt Ltd", guest_gstin: "27aapfu0939f1zv", items, gst_pct: 5, paid_by: "cash" };
+  const h = foodBillHTML(fb, { trade_name: "Two Seas", gstin: "33AAPFU0939F1ZV" }, "Bhoomi");
+  assert.match(h, /<b>Acme Pvt Ltd<\/b><span>GSTIN: <b class="gstin">27AAPFU0939F1ZV<\/b> · State code 27<\/span><span>Guest: Ravi<\/span>/);
+});

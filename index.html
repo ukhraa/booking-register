@@ -494,6 +494,8 @@
           <div class="f"><label for="fd_date">Date</label><input id="fd_date" type="date"></div>
           <div class="f"><label for="fd_house">Apartment</label><select id="fd_house"></select></div>
           <div class="f wide"><label for="fd_guest">Bill to</label><input id="fd_guest" type="text" maxlength="120" autocomplete="off" placeholder="Guest name (optional)"></div>
+          <div class="f fd-gst" hidden><label for="fd_company">Company name (for a GST bill)</label><input id="fd_company" type="text" maxlength="120" autocomplete="off" placeholder="As on their GST registration"></div>
+          <div class="f fd-gst" hidden><label for="fd_gstin">Company GSTIN</label><input id="fd_gstin" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="33ABCDE1234F1Z5"></div>
           <p class="hint wide" id="fd_stay"></p>
         </fieldset>
         <fieldset>
@@ -512,6 +514,7 @@
             <option value="0">No GST</option><option value="5">5% (included in prices)</option><option value="18">18% (included in prices)</option>
           </select></div>
           <div class="f calc"><span class="lbl">Total</span><output id="fd_total">₹0</output></div>
+          <p class="hint wide" id="fd_gsthint" hidden>GST set to 5% (included in the prices) so the business can claim it. Change it if your accountant says otherwise.</p>
         </fieldset>
         <p class="err" id="fd_err" hidden></p>
         <section class="fd-recent" id="fd_recent" hidden></section>

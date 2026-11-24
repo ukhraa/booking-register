@@ -50,6 +50,9 @@ export function foodBillHTML(fb, biz, apartment) {
   const paid = fb.paid_by === "credit" ? `Balance due ${formatINR(t.total)}` : fb.paid_by === "room" ? "Added to room bill" : `Paid by ${PAID_BY[fb.paid_by] || "cash"}`;
   const due = fb.paid_by === "credit";
   const contact = [biz.phone && esc(biz.phone), biz.email && esc(biz.email)].filter(Boolean).join("&nbsp;&nbsp; ");
+  const gstin = String(fb.guest_gstin ?? "").replace(/\s+/g, "").toUpperCase();
+  const company = String(fb.guest_company ?? "").trim();
+  const billTo = company || fb.guest_name;
   return `
   <article class="bill-doc food-doc">
     <header class="bill-band">
@@ -77,7 +80,7 @@ export function foodBillHTML(fb, biz, apartment) {
           </dl>
         </div>
       </section>
-      ${fb.guest_name ? `<section class="bill-to"><div><span class="k">Bill to</span><b>${esc(fb.guest_name)}</b>${apartment ? `<span>${esc(apartment)}</span>` : ""}</div></section>` : ""}
+      ${billTo ? `<section class="bill-to"><div><span class="k">Bill to</span><b>${esc(billTo)}</b>${gstin ? `<span>GSTIN: <b class="gstin">${esc(gstin)}</b> · State code ${esc(gstin.slice(0, 2))}</span>` : ""}${company && fb.guest_name ? `<span>Guest: ${esc(fb.guest_name)}</span>` : ""}${apartment ? `<span>${esc(apartment)}</span>` : ""}</div></section>` : ""}
       <table class="bill-lines">
         <thead><tr><th class="n">#</th><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
         <tbody>${t.lines.map((l, i) => `<tr><td class="n">${i + 1}</td><td><b>${esc(l.item)}</b></td><td class="r">${l.qty}</td><td class="r">${money(l.rate)}</td><td class="r">${money(l.amount)}</td></tr>`).join("")}</tbody>

@@ -125,6 +125,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
 | `008_expenses.sql` | Expenses: expense lines, monthly amounts and daily entries |
 | `007_monthly_history.sql` | The table for monthly nights and room revenue per apartment, for the Performance tab. The figures (January 2023 to September 2026, from Occ_x_Rev_data.xlsx) are loaded from a private file, not kept in this repo |
+| `014_food_bill_gstin.sql` | The guest's company and GSTIN on food bills; food bills in the GST report |
 | `013_food_bills.sql` | Quick food bills with their own bill numbers, and adding them to a stay's bill |
 | `012_guest_gstin.sql` | The guest's company name and GSTIN on the bill, and B2B bills in the GST report |
 | `011_bill_guests_helper.sql` | New bill details (logo, bank, UPI), guest register details, booking emails, calendar check, Google helper and backups |
