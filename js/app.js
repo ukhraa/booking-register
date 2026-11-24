@@ -1506,7 +1506,8 @@ async function openSheet(b = null, prefill = null) {
   G_FIELDS.forEach((f) => ($(f).value = b ? b[f] ?? "" : ""));
   G_NUM.forEach((f) => { if (b && !num(b[f])) $(f).value = ""; });
   ["guest_company", "guest_gstin"].forEach((f) => ($(f).value = b?.[f] ?? ""));
-  document.querySelectorAll("#guestFs .gst-guest").forEach((el) => (el.hidden = !state.gstinReady));
+  document.querySelectorAll(".gst-guest").forEach((el) => (el.hidden = !state.gstinReady));
+  show("gstGuestMissing", !state.gstinReady && isOwner());
   showForeign();
   state.returnFor = null;
   show("returnHint", false);
