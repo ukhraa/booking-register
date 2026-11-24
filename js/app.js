@@ -13,6 +13,7 @@ import { waPhone, prettyPhone, billMessage, waLink, billFileName, jpegToPdf } fr
 import { gstReport, gstCSV, guestRegister, guestRegisterCSV, pastStays, ID_TYPES, isForeign, gstinProblem, cleanGstin } from "./reports.js";
 import { parseAxisRoomsEmail, otaBookingRow } from "./ota-email.js";
 import { calendarIssues, staleLinks } from "./ota-calendar.js";
+import { foodTotals, knownItems, foodBillHTML, foodFileName, PAID_BY } from "./food.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -224,6 +225,10 @@ async function loadBusiness() {
   // Guest company + GSTIN (migration 012): only shown and saved once the database has them.
   const probe = await sb.from("bookings").select("guest_gstin").limit(1);
   state.gstinReady = !probe.error;
+  // Food bills (migration 013).
+  const fprobe = await sb.from("food_bills").select("id").limit(1);
+  state.foodReady = !fprobe.error;
+  show("foodBtn", state.foodReady);
 }
 
 async function loadBookings() {
@@ -1535,6 +1540,7 @@ async function openSheet(b = null, prefill = null) {
   updatePreview();
   show("sheet");
   if (!b) $("serial").value = await suggestSerial();
+  show("foodForStayBtn", !!b && !!state.foodReady);
   $("guest_name").focus();
   if (b) checkReturning();
 }
@@ -1595,6 +1601,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("billView").hidden) closeBill();
   else if (!$("reportView").hidden) closeReport();
+  else if (!$("foodSheet").hidden) closeFood();
   else if (!$("sheet").hidden) closeSheet();
   else if (!$("perfSheet").hidden) closePerf();
 });
@@ -1706,7 +1713,9 @@ function openBill(b) {
   const biz = billBiz();
   $("billDoc").innerHTML = billHTML(b, biz, houseName(b.house_id));
   state.billBooking = b;
+  state.billFood = null;
   state.billPdf = null;
+  show("billWaBtn", true);
   // Becomes the suggested file name when saving as PDF.
   titleBeforeBill = document.title;
   document.title = `Bill ${b.bill_no.replace(/\//g, "-")} ${b.guest_name}`;
@@ -1721,6 +1730,155 @@ function closeBill() {
   document.title = titleBeforeBill;
 }
 $("billCloseBtn").addEventListener("click", closeBill);
+
+// ════════════════════════════ Quick food bills ════════════════════════════
+// Breakfast, meals, tea: item lines → a numbered food bill (own series <prefix>/F/26-27/0001).
+// Linked to the stay in that apartment on that date; "Add to room bill" adds the total
+// to the stay's Food Bill (once, via the add_food_to_room RPC).
+let food = null; // { booking, lines, recent }
+function openFoodBill(fb) {
+  $("billDoc").innerHTML = foodBillHTML(fb, billBiz(), fb.house_id ? houseName(fb.house_id) : "");
+  state.billFood = fb;
+  state.billBooking = null;
+  state.billPdf = null;
+  show("billWaBtn", false);
+  show("waPanel", false);
+  titleBeforeBill = document.title;
+  document.title = `Food bill ${String(fb.bill_no).replace(/\//g, "-")}`;
+  show("billView");
+  $("billPrintBtn").focus();
+}
+/** The stay a food bill on this date belongs to: the guest still in (or leaving that morning), else the one arriving. */
+function stayFor(houseId, date) {
+  const s = (state.upcoming || []).filter((b) => b.house_id === houseId);
+  return s.find((b) => b.check_in < date && date <= b.check_out) || s.find((b) => b.check_in === date) || null;
+}
+async function openFood(prefill = {}) {
+  const date = prefill.date || todayISO();
+  $("fd_date").value = date;
+  $("fd_house").innerHTML = `<option value="">No apartment</option>` + state.houses.map((h) => `<option value="${h.id}">${esc(h.name)}</option>`).join("");
+  $("fd_house").value = prefill.house_id ?? "";
+  $("fd_guest").value = prefill.guest_name || "";
+  $("fd_paid").value = "cash";
+  $("fd_gst").value = "0";
+  show("fd_err", false);
+  food = { booking: prefill.booking || null, lines: [], recent: [] };
+  $("fd_lines").innerHTML = `<div class="fd-line fd-head"><span>Qty</span><span>Item</span><span>Rate</span><span>Amount</span><span></span></div>`;
+  addFoodLine(); addFoodLine();
+  linkStay(!prefill.booking);
+  show("foodSheet");
+  setTimeout(() => $("fd_lines").querySelector("[data-k=item]")?.focus(), 50);
+  // Suggestions and recent bills from the last 60 days.
+  const { data } = await sb.from("food_bills").select("*").gte("bill_date", addDays(todayISO(), -60)).order("created_at", { ascending: false }).limit(300);
+  food.recent = data || [];
+  $("fd_items").innerHTML = knownItems(food.recent).map((k) => `<option value="${esc(k.item)}">${formatINR(k.rate)}</option>`).join("");
+  renderFoodRecent();
+}
+function addFoodLine(l = {}) {
+  const row = document.createElement("div");
+  row.className = "fd-line";
+  row.innerHTML = `<input data-k="qty" type="number" min="0" step="1" inputmode="decimal" value="${l.qty ?? 1}" aria-label="Quantity">
+    <input data-k="item" type="text" list="fd_items" maxlength="80" autocomplete="off" placeholder="Item" value="${esc(l.item || "")}" aria-label="Item">
+    <input data-k="rate" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Rate" value="${l.rate ?? ""}" aria-label="Rate">
+    <output data-k="amount">–</output>
+    <button type="button" class="btn ghost x" aria-label="Remove item">✕</button>`;
+  $("fd_lines").appendChild(row);
+  foodTotal();
+  return row;
+}
+function foodLines() {
+  return [...$("fd_lines").querySelectorAll(".fd-line:not(.fd-head)")].map((r) => ({
+    item: r.querySelector("[data-k=item]").value, qty: num(r.querySelector("[data-k=qty]").value), rate: num(r.querySelector("[data-k=rate]").value),
+  }));
+}
+function foodTotal() {
+  $("fd_lines").querySelectorAll(".fd-line:not(.fd-head)").forEach((r) => {
+    const amt = num(r.querySelector("[data-k=qty]").value) * num(r.querySelector("[data-k=rate]").value);
+    r.querySelector("[data-k=amount]").textContent = amt ? formatINR(amt) : "–";
+  });
+  $("fd_total").textContent = formatINR(foodTotals(foodLines(), num($("fd_gst").value)).total);
+}
+function linkStay(auto = true) {
+  const h = Number($("fd_house").value) || null;
+  if (auto) food.booking = h ? stayFor(h, $("fd_date").value) : null;
+  const b = food.booking;
+  if (b && !$("fd_guest").value) $("fd_guest").value = b.guest_name;
+  $("fd_stay").textContent = b ? `For ${b.guest_name}'s stay (${formatDate(b.check_in)} → ${formatDate(b.check_out)}).` : h ? "No stay in this apartment on this date." : "";
+  const roomOpt = $("fd_paid").querySelector('option[value="room"]');
+  roomOpt.disabled = !b;
+  if (!b && $("fd_paid").value === "room") $("fd_paid").value = "cash";
+}
+function renderFoodRecent() {
+  const today = food.recent.filter((f) => f.bill_date === $("fd_date").value);
+  $("fd_recent").innerHTML = today.length ? `<h3>Food bills on ${formatDate($("fd_date").value)}</h3>` + today.map((f) => `<button type="button" data-fb="${esc(f.id)}"><span>${esc(f.bill_no)} · ${esc(f.house_id ? houseName(f.house_id) : f.guest_name || "No apartment")}</span><small>${formatINR(f.total)} · ${esc(PAID_BY[f.paid_by] || "")}</small></button>`).join("") : "";
+  show("fd_recent", today.length > 0);
+}
+function closeFood() { show("foodSheet", false); food = null; }
+document.querySelectorAll("[data-food-close]").forEach((el) => el.addEventListener("click", closeFood));
+$("foodBtn").addEventListener("click", () => openFood());
+$("foodForStayBtn").addEventListener("click", () => {
+  const b = state.editing;
+  if (!b) return;
+  const today = todayISO();
+  const date = today < b.check_in ? b.check_in : today > b.check_out ? b.check_out : today;
+  closeSheet();
+  openFood({ date, house_id: b.house_id, guest_name: b.guest_name, booking: b });
+});
+$("fd_add").addEventListener("click", () => addFoodLine().querySelector("[data-k=item]").focus());
+$("fd_lines").addEventListener("click", (e) => {
+  const x = e.target.closest(".x");
+  if (!x) return;
+  x.closest(".fd-line").remove();
+  if (!$("fd_lines").querySelector(".fd-line:not(.fd-head)")) addFoodLine();
+  foodTotal();
+});
+$("fd_lines").addEventListener("input", (e) => {
+  if (e.target.dataset.k === "item") {
+    const known = knownItems(food?.recent).find((k) => k.item.toLowerCase() === e.target.value.trim().toLowerCase());
+    const rate = e.target.closest(".fd-line").querySelector("[data-k=rate]");
+    if (known && !rate.value) rate.value = known.rate;
+  }
+  foodTotal();
+});
+$("fd_gst").addEventListener("change", foodTotal);
+$("fd_house").addEventListener("change", () => { $("fd_guest").value = ""; linkStay(); });
+$("fd_date").addEventListener("change", () => { linkStay(); renderFoodRecent(); });
+$("fd_recent").addEventListener("click", (e) => {
+  const fb = food?.recent.find((f) => f.id === e.target.closest("[data-fb]")?.dataset.fb);
+  if (fb) { closeFood(); openFoodBill(fb); }
+});
+$("fd_save").addEventListener("click", async () => {
+  show("fd_err", false);
+  const err = (m) => { $("fd_err").textContent = m; show("fd_err"); };
+  const gst = num($("fd_gst").value);
+  const t = foodTotals(foodLines(), gst);
+  if (!$("fd_date").value) return err("Enter the date.");
+  if (!t.lines.length) return err("Add at least one item with a quantity.");
+  if (t.lines.some((l) => l.rate <= 0)) return err("Enter a rate for every item.");
+  const paid = $("fd_paid").value;
+  const row = {
+    bill_date: $("fd_date").value, house_id: Number($("fd_house").value) || null, booking_id: food.booking?.id ?? null,
+    guest_name: $("fd_guest").value.trim(), items: t.lines.map(({ item, qty, rate }) => ({ item, qty, rate })),
+    gst_pct: gst, total: t.total, paid_by: paid,
+  };
+  const btn = $("fd_save");
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.from("food_bills").insert(row).select("*").limit(1);
+    if (error || !data?.[0]) return err(/food_bills/.test(error?.message || "") ? "Food bills aren't set up yet. Run supabase/migrations/013_food_bills.sql in Supabase." : "Couldn't save. Check your connection.");
+    let fb = data[0];
+    if (paid === "room") {
+      const { error: e2 } = await sb.rpc("add_food_to_room", { p_food_bill: fb.id });
+      if (e2) toast("Saved, but couldn't add it to the room bill. Add it from the booking's Food Bill.");
+      else { fb = { ...fb, added_to_room: true }; toast(`${formatINR(t.total)} added to ${food.booking.guest_name}'s room bill`); }
+    }
+    closeFood();
+    openFoodBill(fb);
+    reloadAll();
+  } finally {
+    btn.disabled = false;
+  }
+});
 $("billPrintBtn").addEventListener("click", () => window.print());
 
 // ── Send the bill on WhatsApp ──
@@ -1739,12 +1897,17 @@ function loadHtmlToImage() {
   }));
 }
 // Photograph a full-width copy of the bill and wrap it in a one-page A4 PDF.
-async function makeBillPdf(b) {
+const makeBillPdf = (b) => makePdf(billHTML(b, billBiz(), houseName(b.house_id)), billFileName(b));
+// The PDF for whatever is in the bill view: a room bill or a food bill.
+const currentBillPdf = () => (state.billFood
+  ? makePdf(foodBillHTML(state.billFood, billBiz(), state.billFood.house_id ? houseName(state.billFood.house_id) : ""), foodFileName(state.billFood))
+  : makeBillPdf(state.billBooking));
+async function makePdf(html, fileName) {
   const lib = await loadHtmlToImage();
   const host = document.createElement("div");
   host.className = "bill-capture";
   host.setAttribute("aria-hidden", "true");
-  host.innerHTML = billHTML(b, billBiz(), houseName(b.house_id));
+  host.innerHTML = html;
   document.body.appendChild(host);
   try {
     const doc = host.firstElementChild;
@@ -1754,7 +1917,7 @@ async function makeBillPdf(b) {
     const dataUrl = await lib.toJpeg(doc, opts);
     const bytes = Uint8Array.from(atob(dataUrl.split(",")[1]), (ch) => ch.charCodeAt(0));
     const w = Math.round(doc.offsetWidth * 2), h = Math.round(doc.offsetHeight * 2);
-    return new File([jpegToPdf(bytes, w, h)], billFileName(b), { type: "application/pdf" });
+    return new File([jpegToPdf(bytes, w, h)], fileName, { type: "application/pdf" });
   } finally {
     host.remove();
   }
@@ -1784,7 +1947,7 @@ $("billPdfBtn").addEventListener("click", async () => {
   btn.disabled = true;
   try {
     let file;
-    try { file = await (state.billPdf ||= makeBillPdf(state.billBooking)); }
+    try { file = await (state.billPdf ||= currentBillPdf()); }
     catch { state.billPdf = null; toast(navigator.onLine ? "Couldn't make the PDF. Use Print / Save PDF instead." : "You're offline. Connect once to make PDFs, or use Print / Save PDF."); return; }
     const url = URL.createObjectURL(file);
     const a = Object.assign(document.createElement("a"), { href: url, download: file.name });

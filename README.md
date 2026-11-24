@@ -12,6 +12,7 @@ Staff record each stay: house, guest, dates, tariff, GST, extras (food, extra be
 - **Settings** is the gear icon at the top (owners only).
 - **Expenses**: the **Daily** view is where anyone signed in logs kitchen, maintenance and other spending as it happens (amount, paid by, what for). The **Monthly** view (owners only) is a sheet with one amount per expense line (salaries, EB bill, rent, OTA commission and so on), with that month's daily entries added up into it automatically. It shows the month's revenue, expenses, profit and cost per night sold. You can copy last month's amounts, add new lines, and export to CSV.
 - **Bill**: a modern invoice with your logo, a header showing the total, an item table with GST, and your bank and UPI details whenever a balance is due. **Download PDF**, **WhatsApp** or **Print** it. Set the logo, bank and UPI details in Settings → Bill details.
+- **Food bills**: Register → Food bill (or Food bill on a booking). Type the items, quantities and rates; the app adds them up and makes a numbered bill (TSR/F/26-27/0001) to print, download as PDF or save. Paid by cash, UPI, later, or **Add to room bill**, which adds it to the stay's Food Bill. Rates you've used before are suggested.
 - **GST bills for businesses**: enter a guest's company name and GSTIN on the booking (Guests section) and the bill shows them, so the business can claim the GST. GSTINs are checked for typos. Your own GSTIN goes in Settings → Bill details.
 - **GST report** (owners): Register → GST report. Every bill in a month (by check-out date), totals by GST rate with CGST and SGST, and the bill list. Print it or download it for your accountant.
 - **Guest register**: Register → Guest register. Everyone who stayed in a month with their address, nationality and ID, and which details are missing. Foreign guests get passport and visa fields (for Form C).
@@ -124,6 +125,7 @@ If you set up the database before a feature was added, run the matching file fro
 | `006_house_colours.sql` | A colour for each apartment on the Availability grid |
 | `008_expenses.sql` | Expenses: expense lines, monthly amounts and daily entries |
 | `007_monthly_history.sql` | The table for monthly nights and room revenue per apartment, for the Performance tab. The figures (January 2023 to September 2026, from Occ_x_Rev_data.xlsx) are loaded from a private file, not kept in this repo |
+| `013_food_bills.sql` | Quick food bills with their own bill numbers, and adding them to a stay's bill |
 | `012_guest_gstin.sql` | The guest's company name and GSTIN on the bill, and B2B bills in the GST report |
 | `011_bill_guests_helper.sql` | New bill details (logo, bank, UPI), guest register details, booking emails, calendar check, Google helper and backups |
 | `010_guest_phone.sql` | Guest phone number on bookings, for sending the bill on WhatsApp |

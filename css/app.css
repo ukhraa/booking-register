@@ -371,6 +371,16 @@ legend { font-family: var(--display); font-weight: 500; padding: 0 6px; color: v
 .ical-row input { min-width: 0; font-size: 13px; }
 .ical-row small { grid-column: 2 / -1; color: var(--muted); }
 @media (max-width: 640px) { .ical-row { grid-template-columns: 1fr; } .ical-row small { grid-column: auto; } }
+.fd-lines { display: flex; flex-direction: column; gap: 8px; }
+.fd-line { display: grid; grid-template-columns: 64px 1fr 88px 84px 36px; gap: 6px; align-items: center; }
+.fd-line input { min-width: 0; }
+.fd-line output { text-align: right; font-variant-numeric: tabular-nums; }
+.fd-line .x { padding: 6px; min-width: 0; }
+.fd-head { font-size: 12px; color: var(--muted); }
+@media (max-width: 480px) { .fd-line { grid-template-columns: 52px 1fr 70px 30px; } .fd-line output { display: none; } .fd-head span:nth-child(4) { display: none; } }
+.fd-recent h3 { font-size: 14px; margin: 0 0 6px; }
+.fd-recent button { display: flex; width: 100%; justify-content: space-between; gap: 8px; text-align: left; padding: 8px 0; background: none; border: 0; border-top: 1px solid var(--line); color: var(--text); font: inherit; cursor: pointer; }
+.fd-recent button small { color: var(--muted); }
 .returning { background: var(--accent-soft, #e8f0fd); border-radius: 8px; padding: 8px 12px; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .returning b { color: var(--accent); }
 .returning ul { margin: 0; padding-left: 18px; flex-basis: 100%; color: var(--muted); font-size: 13px; }
@@ -429,7 +439,7 @@ fieldset .foreign[hidden] { display: none !important; }
 .bill-band .bb-name { font-family: var(--serif); font-size: 24px; font-weight: 700; }
 .bill-band .bb-sub { opacity: .8; font-size: 14px; }
 .bill-band .bb-total { font-family: var(--serif); font-size: 40px; font-weight: 700; letter-spacing: -.01em; line-height: 1.15; margin-top: 4px; }
-.bill-band .bb-status { align-self: center; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; margin-top: 4px; }
+.bill-band .bb-status { white-space: nowrap; align-self: center; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; margin-top: 4px; }
 .bill-band .bb-status.paid { background: #dff3e4; color: #1d6b34; }
 .bill-band .bb-status.due { background: #fde3df; color: #a3271c; }
 .bill-card { background: #fff; margin: 16px; border: 1px solid var(--rule); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
@@ -476,7 +486,7 @@ fieldset .foreign[hidden] { display: none !important; }
 .bill-foot .sign img { display: block; height: 56px; max-width: 220px; object-fit: contain; margin: 4px 0 -6px auto; }
 .bill-foot .sign span { display: block; margin-top: 34px; border-top: 1px solid var(--ink); padding-top: 4px; color: var(--soft); font-size: 12px; }
 .bill-foot .sign img + span { margin-top: 0; }
-@media (max-width: 560px) {
+@media screen and (max-width: 560px) {
   .bill-scroll { padding: 8px; }
   .bill-card { margin: 10px; padding: 14px; }
   .bill-band .bb-total { font-size: 32px; }

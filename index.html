@@ -108,6 +108,7 @@
         <div class="row-between">
           <h2 id="periodTitle">Bookings</h2>
           <div class="actions">
+            <button class="btn" id="foodBtn" type="button" hidden>Food bill</button>
             <button class="btn" id="guestRegBtn" type="button">Guest register</button>
             <button class="btn" id="gstBtn" type="button" hidden>GST report</button>
             <button class="btn" id="exportBtn">Export CSV</button>
@@ -472,8 +473,52 @@
       <div class="sheet-foot">
         <button class="btn danger" id="deleteBtn" type="button" hidden>Delete booking</button>
         <span class="grow"></span>
+        <button class="btn" id="foodForStayBtn" type="button" hidden>Food bill</button>
         <button class="btn" id="billBtn" type="button" hidden>Print bill</button>
         <button class="btn primary" id="saveBtn" type="button">Save booking</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Quick food bill (breakfast, meals, tea) -->
+  <div id="foodSheet" class="sheet-host" hidden>
+    <div class="scrim" data-food-close></div>
+    <aside class="sheet" role="dialog" aria-modal="true" aria-labelledby="foodTitle">
+      <div class="sheet-head">
+        <h2 id="foodTitle">Food bill</h2>
+        <button class="btn ghost" data-food-close type="button">Close</button>
+      </div>
+      <div class="sheet-body">
+        <fieldset>
+          <legend>Bill</legend>
+          <div class="f"><label for="fd_date">Date</label><input id="fd_date" type="date"></div>
+          <div class="f"><label for="fd_house">Apartment</label><select id="fd_house"></select></div>
+          <div class="f wide"><label for="fd_guest">Bill to</label><input id="fd_guest" type="text" maxlength="120" autocomplete="off" placeholder="Guest name (optional)"></div>
+          <p class="hint wide" id="fd_stay"></p>
+        </fieldset>
+        <fieldset>
+          <legend>Items</legend>
+          <div class="fd-lines wide" id="fd_lines"></div>
+          <div class="wide"><button type="button" class="btn" id="fd_add">+ Add item</button></div>
+          <datalist id="fd_items"></datalist>
+        </fieldset>
+        <fieldset>
+          <legend>Payment</legend>
+          <div class="f"><label for="fd_paid">Paid by</label><select id="fd_paid">
+            <option value="cash">Cash</option><option value="upi">UPI</option>
+            <option value="room">Add to room bill</option><option value="credit">To be paid later</option>
+          </select></div>
+          <div class="f"><label for="fd_gst">GST</label><select id="fd_gst">
+            <option value="0">No GST</option><option value="5">5% (included in prices)</option><option value="18">18% (included in prices)</option>
+          </select></div>
+          <div class="f calc"><span class="lbl">Total</span><output id="fd_total">₹0</output></div>
+        </fieldset>
+        <p class="err" id="fd_err" hidden></p>
+        <section class="fd-recent" id="fd_recent" hidden></section>
+      </div>
+      <div class="sheet-foot">
+        <span class="grow"></span>
+        <button class="btn primary" id="fd_save" type="button">Save and show bill</button>
       </div>
     </aside>
   </div>
