@@ -445,6 +445,7 @@ fieldset .foreign[hidden] { display: none !important; }
 .bill-to { background: var(--tint); border-radius: 6px; padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 20px; }
 .bill-to > div { display: flex; flex-direction: column; gap: 1px; }
 .bill-to b { font-size: 14px; }
+.bill-to b.gstin { font-size: 13px; letter-spacing: .02em; }
 .bill-doc .k { display: block; font-size: 12px; color: var(--soft); margin-bottom: 2px; }
 .bill-doc table { width: 100%; min-width: 0; font-size: 13px; border-collapse: collapse; }
 .bill-doc th, .bill-doc td { white-space: normal; padding: 8px 8px; vertical-align: top; }

@@ -10,7 +10,7 @@ import { computeMetrics, monthlySeries, yearlySeries, perfPeriod, DEFAULT_TARGET
 import { buildMetrics, cardsHTML, detailHTML } from "./performance.js";
 import { monthSheet, dayTotals, monthProfit, expensesCSV } from "./expenses-calc.js";
 import { waPhone, prettyPhone, billMessage, waLink, billFileName, jpegToPdf } from "./whatsapp.js";
-import { gstReport, gstCSV, guestRegister, guestRegisterCSV, pastStays, ID_TYPES, isForeign } from "./reports.js";
+import { gstReport, gstCSV, guestRegister, guestRegisterCSV, pastStays, ID_TYPES, isForeign, gstinProblem, cleanGstin } from "./reports.js";
 import { parseAxisRoomsEmail, otaBookingRow } from "./ota-email.js";
 import { calendarIssues, staleLinks } from "./ota-calendar.js";
 
@@ -221,6 +221,9 @@ async function loadBusiness() {
   state.businessLoaded = !error && !!data;
   if (state.businessLoaded) [...BIZ_FIELDS, ...BIZ_FIELDS2, "signature", "logo"].forEach((k) => (state.business[k] = data[k] ?? ""));
   state.bizV2 = state.businessLoaded && "upi_id" in data;
+  // Guest company + GSTIN (migration 012): only shown and saved once the database has them.
+  const probe = await sb.from("bookings").select("guest_gstin").limit(1);
+  state.gstinReady = !probe.error;
 }
 
 async function loadBookings() {
@@ -720,11 +723,17 @@ function gstHTML(r) {
       <tbody>${r.rates.map((g) => `<tr><td>${g.rate ? `${g.rate}%` : "Nil (0%)"}</td><td class="r">${g.bills}</td><td class="r">${inrPlain(g.taxable)}</td><td class="r">${inrPlain(g.cgst)}</td><td class="r">${inrPlain(g.sgst)}</td><td class="r">${inrPlain(g.gst)}</td><td class="r">${inrPlain(g.other)}</td><td class="r">${inrPlain(g.total)}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No bills this month.</td></tr>`}</tbody>
       ${r.rates.length ? `<tfoot><tr><td>Total</td><td class="r">${t.bills}</td><td class="r">${inrPlain(t.taxable)}</td><td class="r">${inrPlain(t.cgst)}</td><td class="r">${inrPlain(t.sgst)}</td><td class="r">${inrPlain(t.gst)}</td><td class="r">${inrPlain(t.other)}</td><td class="r">${inrPlain(t.total)}</td></tr></tfoot>` : ""}
     </table></div>
-    <p class="muted">All bills are to guests without a GSTIN (B2C). Room accommodation is SAC 996311. GST is charged on the room tariff; food and extras are listed without GST, as on the bills.</p>
-    <h2>Bills</h2>
+    <p class="muted">${r.b2b.length ? `${r.b2bTotals.bills} bill${r.b2bTotals.bills === 1 ? "" : "s"} to businesses with a GSTIN (B2B, listed below for GSTR-1); ${r.b2cTotals.bills} to guests without one (B2C).` : "All bills are to guests without a GSTIN (B2C)."} Room accommodation is SAC 996311; place of supply is the hotel's state, so GST is CGST + SGST. GST is charged on the room tariff; food and extras are listed without GST, as on the bills.</p>
+    ${r.b2b.length ? `<h2>B2B bills (guest has a GSTIN)</h2>
+    <div class="rep-scroll"><table>
+      <thead><tr><th>Guest GSTIN</th><th>Company</th><th>Bill no.</th><th>Date</th><th class="r">GST</th><th class="r">Taxable value</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Invoice value</th></tr></thead>
+      <tbody>${r.b2b.map((l) => `<tr data-open="${esc(l.id)}"><td>${esc(l.gstin)}</td><td>${esc(l.company)}</td><td>${l.bill_no ? esc(l.bill_no) : `<span class="tag">no bill no.</span>`}</td><td>${formatDate(l.date)}</td><td class="r">${l.rate}%</td><td class="r">${inrPlain(l.taxable)}</td><td class="r">${inrPlain(l.cgst)}</td><td class="r">${inrPlain(l.sgst)}</td><td class="r">${inrPlain(l.total)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td colspan="5">B2B total</td><td class="r">${inrPlain(r.b2bTotals.taxable)}</td><td class="r" colspan="2">GST ${inrPlain(r.b2bTotals.gst)}</td><td class="r">${inrPlain(r.b2bTotals.total)}</td></tr></tfoot>
+    </table></div>` : ""}
+    <h2>All bills</h2>
     <div class="rep-scroll"><table>
       <thead><tr><th>Bill no.</th><th>Date</th><th>Guest</th><th>Apartment</th><th>Booking</th><th class="r">Nights</th><th class="r">GST</th><th class="r">Taxable value</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">Food &amp; extras</th><th class="r">Invoice value</th></tr></thead>
-      <tbody>${r.lines.map((l) => `<tr data-open="${esc(l.id)}"><td>${l.bill_no ? esc(l.bill_no) : `<span class="tag">no bill no.</span>`}</td><td>${formatDate(l.date)}</td><td>${esc(l.guest)}</td><td>${esc(houseName(l.house_id))}</td><td>${esc(l.booking_type)}</td><td class="r">${l.nights}</td><td class="r">${l.rate}%</td><td class="r">${inrPlain(l.taxable)}</td><td class="r">${inrPlain(l.cgst)}</td><td class="r">${inrPlain(l.sgst)}</td><td class="r">${inrPlain(l.other)}</td><td class="r">${inrPlain(l.total)}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">No bills this month.</td></tr>`}</tbody>
+      <tbody>${r.lines.map((l) => `<tr data-open="${esc(l.id)}"><td>${l.bill_no ? esc(l.bill_no) : `<span class="tag">no bill no.</span>`}</td><td>${formatDate(l.date)}</td><td>${esc(l.guest)}${l.gstin ? `<br><span class="muted">${esc(l.company)} · ${esc(l.gstin)}</span>` : ""}</td><td>${esc(houseName(l.house_id))}</td><td>${esc(l.booking_type)}</td><td class="r">${l.nights}</td><td class="r">${l.rate}%</td><td class="r">${inrPlain(l.taxable)}</td><td class="r">${inrPlain(l.cgst)}</td><td class="r">${inrPlain(l.sgst)}</td><td class="r">${inrPlain(l.other)}</td><td class="r">${inrPlain(l.total)}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">No bills this month.</td></tr>`}</tbody>
     </table></div>
   </article>`;
 }
@@ -1387,6 +1396,7 @@ function readForm() {
     if (/^india(n)?$/i.test(o.nationality)) o.nationality = "";
     if (!isForeign(o)) { o.visa_no = ""; o.visa_expiry = null; o.arrived_india = null; }
   }
+  if (state.gstinReady) { o.guest_company = $("guest_company").value.trim(); o.guest_gstin = cleanGstin($("guest_gstin").value); }
   o.house_id = Number($("house_id").value);
   o.serial = $("serial").value === "" ? null : Number($("serial").value);
   return o;
@@ -1495,6 +1505,8 @@ async function openSheet(b = null, prefill = null) {
   show("guestFs", !!state.bizV2);
   G_FIELDS.forEach((f) => ($(f).value = b ? b[f] ?? "" : ""));
   G_NUM.forEach((f) => { if (b && !num(b[f])) $(f).value = ""; });
+  ["guest_company", "guest_gstin"].forEach((f) => ($(f).value = b?.[f] ?? ""));
+  document.querySelectorAll("#guestFs .gst-guest").forEach((el) => (el.hidden = !state.gstinReady));
   showForeign();
   state.returnFor = null;
   show("returnHint", false);
@@ -1609,6 +1621,11 @@ $("saveBtn").addEventListener("click", async () => {
   const noDays = EXTRAS.find((k) => state.extras[k].on && b[`${k}_days`] < 1);
   if (noDays) return formError(`Enter how many days ${EXTRA_LABEL[noDays]} was used, or set it to No.`);
   if (b.gst_pct > 28) return formError("GST % can't be more than 28.");
+  if (state.gstinReady) {
+    const gp = gstinProblem(b.guest_gstin);
+    if (gp) { $("guest_gstin").focus(); return formError(gp); }
+    if (b.guest_gstin && !b.guest_company) { $("guest_company").focus(); return formError("Enter the company name that goes with the GSTIN."); }
+  }
 
   const btn = $("saveBtn");
   btn.disabled = true;
@@ -1654,6 +1671,7 @@ function formMatchesSaved() {
   const f = readForm(), s = state.editing;
   return [...MONEY, ...EXTRAS, ...EXTRAS.map((k) => `${k}_days`)].every((k) => num(f[k]) === num(s[k]))
     && TEXT.every((k) => f[k] === String(s[k] ?? "").trim())
+    && (!state.gstinReady || (f.guest_company === String(s.guest_company ?? "").trim() && f.guest_gstin === cleanGstin(s.guest_gstin)))
     && (!state.bizV2 || (G_TEXT.every((k) => f[k] === String(s[k] ?? "").trim()) && G_NUM.every((k) => f[k] === num(s[k])) && G_DATE.every((k) => (f[k] || null) === (s[k] || null))))
     && f.house_id === s.house_id && f.serial === s.serial;
 }
@@ -2125,6 +2143,10 @@ $("bizForm").addEventListener("submit", async (e) => {
   show("bizErr", false);
   const row = { id: 1, updated_at: new Date().toISOString() };
   BIZ_FIELDS.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
+  row.gstin = cleanGstin(row.gstin);
+  const gp = gstinProblem(row.gstin);
+  if (gp) { $("bizErr").textContent = `Your GSTIN: ${gp.replace("Check it with the guest.", "Check your GST certificate.")}`; show("bizErr"); $("biz_gstin").focus(); return; }
+  if (row.gstin.startsWith("33") && !row.state) row.state = "Tamil Nadu";
   if (state.bizV2) {
     BIZ_FIELDS2.forEach((k) => (row[k] = $(`biz_${k}`).value.trim()));
     row.bank_ifsc = row.bank_ifsc.toUpperCase();

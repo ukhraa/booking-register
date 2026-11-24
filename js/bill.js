@@ -75,6 +75,8 @@ export function billHTML(b, biz, apartment) {
   const sig = /^data:image\/png;base64,/.test(biz.signature ?? "") ? `<img src="${esc(biz.signature)}" alt="Signature">` : "";
   const guests = [num(b.adults) && `${num(b.adults)} adult${num(b.adults) === 1 ? "" : "s"}`, num(b.children) && `${num(b.children)} child${num(b.children) === 1 ? "" : "ren"}`].filter(Boolean).join(", ");
   const phone = maskPhone(b.guest_phone);
+  const gstin = String(b.guest_gstin ?? "").replace(/\s+/g, "").toUpperCase();
+  const company = String(b.guest_company ?? "").trim();
   const bank = biz.bank_account_no && biz.bank_ifsc
     ? [["Account name", biz.bank_account_name], ["Account no.", biz.bank_account_no], ["IFSC", biz.bank_ifsc], ["Bank", biz.bank_name]].filter(([, v]) => v)
     : [];
@@ -124,7 +126,9 @@ export function billHTML(b, biz, apartment) {
       <section class="bill-to">
         <div>
           <span class="k">Bill to</span>
-          <b>${esc(b.guest_name)}</b>
+          <b>${esc(company || b.guest_name)}</b>
+          ${gstin ? `<span>GSTIN: <b class="gstin">${esc(gstin)}</b>${gstin.slice(0, 2) ? ` · State code ${esc(gstin.slice(0, 2))}` : ""}</span>` : ""}
+          ${company ? `<span>Guest: ${esc(b.guest_name)}</span>` : ""}
           ${b.guest_address ? `<span>${esc(b.guest_address)}</span>` : ""}
           ${phone ? `<span>${phone}</span>` : ""}
         </div>

@@ -445,6 +445,11 @@ alter table public.bookings
 alter table public.bookings
   add column if not exists guest_phone text not null default '';
 
+-- The guest's company and GSTIN on the bill (migration 012).
+alter table public.bookings
+  add column if not exists guest_company text not null default '',
+  add column if not exists guest_gstin   text not null default '';
+
 create table if not exists public.monthly_food_income (
   ym     text primary key check (ym ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   amount numeric(12,2) not null default 0 check (amount >= 0)

@@ -42,3 +42,10 @@ test("bill HTML: totals, balance, bank details, escaping", () => {
   assert.doesNotMatch(paid, /payment remark/);       // no bank details once paid
   assert.equal(billTitle({ gstin: "" }, 100), "Bill");
 });
+
+test("bill to a business: company and GSTIN shown, guest named", () => {
+  const h = billHTML({ ...b, guest_company: "Acme Pvt Ltd", guest_gstin: "27aapfu0939f1zv" }, biz, "Bhoomi");
+  assert.match(h, /<b>Acme Pvt Ltd<\/b>/);
+  assert.match(h, /GSTIN: <b class="gstin">27AAPFU0939F1ZV<\/b> · State code 27/);
+  assert.match(h, /Guest: Ravi &lt;Kumar&gt;/);
+});

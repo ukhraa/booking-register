@@ -25,7 +25,8 @@ export function gstReport(bookings, ym, today = null) {
     const rate = num(b.gst_pct);
     const other = r2(c.grossTotal - c.totalTariff); // food + extras
     const line = { id: b.id, bill_no: b.bill_no || "", date: b.check_out, guest: b.guest_name, house_id: b.house_id,
-      booking_type: b.booking_type, nights: c.nights, rate, taxable: num(b.tariff), cgst, sgst, gst: c.gstAmount, other, total: c.grossTotal };
+      booking_type: b.booking_type, nights: c.nights, rate, taxable: num(b.tariff), cgst, sgst, gst: c.gstAmount, other, total: c.grossTotal,
+      gstin: cleanGstin(b.guest_gstin), company: String(b.guest_company || "").trim() };
     const g = byRate.get(rate) || { rate, bills: 0, taxable: 0, cgst: 0, sgst: 0, gst: 0, other: 0, total: 0 };
     g.bills++; g.taxable += line.taxable; g.cgst += cgst; g.sgst += sgst; g.gst += c.gstAmount; g.other += other; g.total += c.grossTotal;
     byRate.set(rate, g);
@@ -34,10 +35,13 @@ export function gstReport(bookings, ym, today = null) {
   const rates = [...byRate.values()].sort((a, b) => a.rate - b.rate)
     .map((g) => ({ ...g, taxable: r2(g.taxable), cgst: r2(g.cgst), sgst: r2(g.sgst), gst: r2(g.gst), other: r2(g.other), total: r2(g.total) }));
   const sum = (k) => r2(rates.reduce((s, g) => s + g[k], 0));
+  const part = (ls) => ({ bills: ls.length, taxable: r2(ls.reduce((s, l) => s + l.taxable, 0)), gst: r2(ls.reduce((s, l) => s + l.gst, 0)), total: r2(ls.reduce((s, l) => s + l.total, 0)) });
+  const b2b = lines.filter((l) => l.gstin);
   return {
     ym, start, end, lines, rates,
     totals: { bills: lines.length, taxable: sum("taxable"), cgst: sum("cgst"), sgst: sum("sgst"), gst: sum("gst"), other: sum("other"), total: sum("total") },
     missingBillNo: lines.filter((l) => !l.bill_no),
+    b2b, b2bTotals: part(b2b), b2cTotals: part(lines.filter((l) => !l.gstin)),
     notCheckedOut: notYet.length,
   };
 }
@@ -51,9 +55,12 @@ export function gstCSV(rep, houseName, business = {}) {
     ...rep.rates.map((g) => csvRow([g.rate, g.bills, g.taxable, g.cgst, g.sgst, g.gst, g.other, g.total])),
     csvRow(["Total", rep.totals.bills, rep.totals.taxable, rep.totals.cgst, rep.totals.sgst, rep.totals.gst, rep.totals.other, rep.totals.total]),
     "",
+    csvRow(["B2B (guest has a GSTIN)", rep.b2bTotals.bills, "bills", "taxable", rep.b2bTotals.taxable, "GST", rep.b2bTotals.gst]),
+    csvRow(["B2C (no GSTIN)", rep.b2cTotals.bills, "bills", "taxable", rep.b2cTotals.taxable, "GST", rep.b2cTotals.gst]),
+    "",
     csvRow(["Bills"]),
-    csvRow(["Bill no.", "Date", "Guest", "Apartment", "Booking type", "Nights", "GST rate %", "Taxable value", "CGST", "SGST", "Food & extras", "Invoice value"]),
-    ...rep.lines.map((l) => csvRow([l.bill_no || "(no bill no.)", formatDate(l.date), l.guest, houseName(l.house_id), l.booking_type, l.nights, l.rate, l.taxable, l.cgst, l.sgst, l.other, l.total])),
+    csvRow(["Bill no.", "Date", "Guest", "Company", "Guest GSTIN", "Apartment", "Booking type", "Nights", "GST rate %", "Taxable value", "CGST", "SGST", "Food & extras", "Invoice value"]),
+    ...rep.lines.map((l) => csvRow([l.bill_no || "(no bill no.)", formatDate(l.date), l.guest, l.company, l.gstin, houseName(l.house_id), l.booking_type, l.nights, l.rate, l.taxable, l.cgst, l.sgst, l.other, l.total])),
   ];
   return out.join("\r\n");
 }
@@ -103,3 +110,23 @@ export function pastStays(bookings, { phone = "", name = "", excludeId = null, b
       || (nm.length >= 4 && String(b.guest_name || "").trim().toLowerCase().replace(/\s+/g, " ") === nm))
     .sort((a, b) => b.check_in.localeCompare(a.check_in));
 }
+
+/**
+ * Check a GSTIN: 2-digit state code, PAN, entity number, "Z", check character.
+ * Returns "" when it's fine, or a short reason. Spaces are ignored; letters may be lower case.
+ */
+export function gstinProblem(raw) {
+  const g = String(raw ?? "").replace(/\s+/g, "").toUpperCase();
+  if (!g) return "";
+  if (g.length !== 15) return "A GSTIN has 15 characters.";
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g)) return "That doesn't look like a GSTIN (e.g. 33ABCDE1234F1Z5).";
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const p = chars.indexOf(g[i]) * (i % 2 ? 2 : 1);
+    sum += Math.floor(p / 36) + (p % 36);
+  }
+  if (chars[(36 - (sum % 36)) % 36] !== g[14]) return "That GSTIN has a typo (its last character doesn't match). Check it with the guest.";
+  return "";
+}
+export const cleanGstin = (raw) => String(raw ?? "").replace(/\s+/g, "").toUpperCase();

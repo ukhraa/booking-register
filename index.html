@@ -305,11 +305,11 @@
           <div class="grid2">
             <div class="f biz-v2"><label for="biz_trade_name">Name shown on the bill</label><input id="biz_trade_name" type="text" maxlength="80" placeholder="Two Seas Residence"></div>
             <div class="f"><label for="biz_legal_name">Registered business name</label><input id="biz_legal_name" type="text" maxlength="80"></div>
-            <div class="f"><label for="biz_gstin">GSTIN</label><input id="biz_gstin" type="text" maxlength="15" autocapitalize="characters" autocomplete="off" placeholder="Leave blank if not registered"></div>
+            <div class="f"><label for="biz_gstin">Your GSTIN (printed on every bill)</label><input id="biz_gstin" type="text" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Leave blank if not registered"></div>
             <div class="f wide"><label for="biz_address">Address</label><textarea id="biz_address" rows="3" maxlength="300"></textarea></div>
             <div class="f"><label for="biz_phone">Phone</label><input id="biz_phone" type="tel" maxlength="40"></div>
             <div class="f"><label for="biz_email">Email</label><input id="biz_email" type="email" maxlength="80"></div>
-            <div class="f"><label for="biz_state">State (place of supply)</label><input id="biz_state" type="text" maxlength="40" placeholder="e.g. Kerala"></div>
+            <div class="f"><label for="biz_state">State (place of supply)</label><input id="biz_state" type="text" maxlength="40" placeholder="e.g. Tamil Nadu"></div>
             <div class="f"><label for="biz_invoice_prefix">Bill number prefix</label><input id="biz_invoice_prefix" type="text" maxlength="5" autocapitalize="characters" autocomplete="off"></div>
             <div class="f wide"><label for="biz_footer_note">Note at the bottom of the bill</label><input id="biz_footer_note" type="text" maxlength="200"></div>
             <div class="f wide biz-v2">
@@ -411,6 +411,8 @@
           <div class="f wide"><label for="guest_address">Address</label><input id="guest_address" type="text" maxlength="200" autocomplete="off" placeholder="House, street, city, state"></div>
           <div class="f"><label for="nationality">Nationality</label><input id="nationality" type="text" maxlength="40" list="natList" autocomplete="off" placeholder="Indian"></div>
           <div class="f"><label for="id_type">ID type</label><select id="id_type"></select></div>
+          <div class="f gst-guest"><label for="guest_company">Company name (for a GST bill)</label><input id="guest_company" type="text" maxlength="120" autocomplete="off" placeholder="As on their GST registration"></div>
+          <div class="f gst-guest"><label for="guest_gstin">Company GSTIN</label><input id="guest_gstin" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="33ABCDE1234F1Z5"></div>
           <div class="f"><label for="id_number">ID number</label><input id="id_number" type="text" maxlength="30" autocomplete="off" autocapitalize="characters"></div>
           <div class="f foreign"><label for="visa_no">Visa number</label><input id="visa_no" type="text" maxlength="30" autocomplete="off" autocapitalize="characters"></div>
           <div class="f foreign"><label for="visa_expiry">Visa valid until</label><input id="visa_expiry" type="date"></div>
